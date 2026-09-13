@@ -1,0 +1,16 @@
+diff --git a/chromium/ui/latency/latency_info.cc b/chromium/ui/latency/latency_info.cc
+--- a/chromium/ui/latency/latency_info.cc
++++ b/chromium/ui/latency/latency_info.cc
+@@ -75,7 +75,12 @@ class LatencyInfoTracedValue
+   DISALLOW_COPY_AND_ASSIGN(LatencyInfoTracedValue);
+ };
+
++// GCC reports this anonymous-namespace helper as defined but never called.
++// It is the only remaining caller of the private constructor, so deleting it
++// would cascade; mark it possibly-unused instead of editing code the port
++// does not own.
++__attribute__((unused))
+ std::unique_ptr<base::trace_event::ConvertableToTraceFormat>
+ LatencyInfoTracedValue::FromValue(std::unique_ptr<base::Value> value) {
+   return std::unique_ptr<base::trace_event::ConvertableToTraceFormat>(
+       new LatencyInfoTracedValue(value.release()));

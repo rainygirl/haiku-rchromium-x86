@@ -1,0 +1,20 @@
+KERN: package_daemon: [16269757:    72] Doing first boot processing #138 for package tiff-4.2.0-1-x86_gcc2.hpkg.
+KERN: package_daemon: [16270231:    72] Doing first boot processing #139 for package readline-8.3.003-1-x86_gcc2.hpkg.
+KERN: package_daemon: [16270693:    72] Doing first boot processing #140 for package libvpx1.15_x86-1.15.2-1-x86_gcc2.hpkg.
+KERN: package_daemon: [16271254:    72] KERN: Doing first boot processing #141 for package intel_wifi_firmwares-2025_02_11-1-any.hpkg.
+KERN: package_daemon: [16276489:    72] Doing first boot processing #142 for package libpcre-8.45-3-x86_gcc2.hpkg.
+KERN: package_daemon: [16277414:    72] KERN: Doing first boot processing #143 for package grep_x86-3.11-2-x86_gcc2.hpkg.
+KERN: Running first login script /boot/system/boot/first-login/default_deskbar_items.sh ...
+KERN: package_daemon: [10281750:    61] root at "/boot" (device: 3, node: 131072) registered
+KERN: package_daemon: [10282292:    61] volume at "/boot/system" registered
+KERN: package_daemon: [10282828:    61] volume at "/boot/home/config" registered
+KERN: package_daemon: [13332342:    71] Failed to open packages activation file /boot/system/packages/administrative/activated-packages: No such file or directory
+KERN: package_daemon: [13333014:    71] Failed to get activated packages info from activated packages file. Assuming all package files in package directory are activated.
+KERN: package_daemon: [13333862:    71] The latest volume state is also the currently active one
+KERN: package_daemon: [13334641:    71] Volume::InitialVerify((nil), (nil))
+KERN: package_daemon: [13443176:    71] KERN: Volume::InitialVerify(): volume at "/boot/system" is consistent
+KERN: package_daemon: [13458187:    71] Failed to open packages activation file /boot/home/config/packages/administrative/activated-packages: No such file or directory
+KERN: package_daemon: [13458843:    71] Failed to get activated packages info from activated packages file. Assuming all package files in package directory are activated.
+KERN: package_daemon: [13459490:    71] The latest volume state is also the currently active one
+KERN: package_daemon: [13460671:    71] Volume::InitialVerify(0x4671000, (nil))
+KERN: package_daemon: [13497017:    71] Volume::InitialVerify(): volume at "/boot/home/config" is consistent

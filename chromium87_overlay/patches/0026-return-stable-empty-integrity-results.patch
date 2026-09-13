@@ -1,0 +1,13 @@
+diff --git a/chromium/net/dns/host_resolver.cc b/chromium/net/dns/host_resolver.cc
+--- a/chromium/net/dns/host_resolver.cc
++++ b/chromium/net/dns/host_resolver.cc
+@@ -79,6 +79,8 @@ const base::Optional<std::vector<bool>>&
+ HostResolver::ResolveHostRequest::GetIntegrityResultsForTesting() const {
+   IMMEDIATE_CRASH();
+-  return base::Optional<std::vector<bool>>();
++  static const base::NoDestructor<base::Optional<std::vector<bool>>>
++      nullopt_result;
++  return *nullopt_result;
+ }
+ 
+ const size_t HostResolver::ManagerOptions::kDefaultRetryAttempts =

@@ -1,0 +1,16 @@
+--- a/chromium/build/config/compiler/BUILD.gn
++++ b/chromium/build/config/compiler/BUILD.gn
+@@ -1522,6 +1522,13 @@
+         # actually fine; the attribute is what misleads GCC. Clang builds of
+         # Chromium disable the same warning.
+         cflags += [ "-Wno-address-of-packed-member" ]
++
++        # GCC enables -Wc++20-compat as part of -Wall. Mojom generates struct
++        # fields named "requires" (for example in InterfaceProviderSpec), which
++        # is a keyword in C++20 but a plain identifier in the gnu++14 this
++        # build uses. The headers are generated, so suppressing the warning is
++        # the durable fix; editing the output would not survive regeneration.
++        cflags_cc += [ "-Wno-c++20-compat" ]
+       }
+     }
+   }

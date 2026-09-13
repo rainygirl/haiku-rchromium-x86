@@ -1,0 +1,32 @@
+--- a/chromium/third_party/webrtc/api/function_view.h
++++ b/chromium/third_party/webrtc/api/function_view.h
+@@ -38,6 +38,18 @@
+ 
+ namespace rtc {
+ 
++namespace function_view_internal {
++// The function-pointer constructor below deduces F as a function reference as
++// well as a function pointer. For a reference, GCC sees a null test on
++// something whose address can never be null and reports -Waddress. Routing the
++// test through a pointer parameter keeps the check meaningful for genuine
++// function pointers without tripping the warning.
++template <typename T>
++inline bool IsNotNull(T* p) {
++  return p != nullptr;
++}
++}  // namespace function_view_internal
++
+ template <typename T>
+ class FunctionView;  // Undefined.
+ 
+@@ -76,7 +88,9 @@
+           typename std::remove_reference<F>::type>::type>::value>::type* =
+           nullptr>
+   FunctionView(F&& f)
+-      : call_(f ? CallFunPtr<typename std::remove_pointer<F>::type> : nullptr) {
++      : call_(function_view_internal::IsNotNull(f)
++                  ? CallFunPtr<typename std::remove_pointer<F>::type>
++                  : nullptr) {
+     f_.fun_ptr = reinterpret_cast<void (*)()>(f);
+   }
+ 

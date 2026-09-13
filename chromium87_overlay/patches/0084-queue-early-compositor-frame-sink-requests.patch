@@ -1,0 +1,123 @@
+--- a/components/viz/host/host_frame_sink_manager.cc
++++ b/components/viz/host/host_frame_sink_manager.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "components/viz/host/host_frame_sink_manager.h"
+ 
++#include <stdio.h>
++
+ #include <utility>
+ 
+ #include "base/bind.h"
+@@ -27,6 +29,7 @@
+     mojom::FrameSinkManager* frame_sink_manager) {
+   DCHECK(!frame_sink_manager_remote_);
+   frame_sink_manager_ = frame_sink_manager;
++  FlushPendingCreates();
+ }
+ 
+ void HostFrameSinkManager::BindAndSetManager(
+@@ -46,6 +49,7 @@
+     RegisterAfterConnectionLoss();
+     connection_was_lost_ = false;
+   }
++  FlushPendingCreates();
+ }
+ 
+ void HostFrameSinkManager::SetConnectionLostCallback(
+@@ -166,11 +170,56 @@
+                                                     base::DoNothing());
+   }
+ 
+-  if (frame_sink_manager_) {
+-    data.is_root = false;
+-    data.has_created_compositor_frame_sink = true;
+-    frame_sink_manager_->CreateCompositorFrameSink(
++  if (!frame_sink_manager_) {
++    // Keep the request until the FrameSinkManager is connected, instead of
++    // letting the receiver die here.
++    //
++    // Dropping it is not harmless. The renderer's AsyncLayerTreeFrameSink
++    // sees the closed pipe as a connection error, reports
++    // DidLoseLayerTreeFrameSink(), and requests a new sink on the very next
++    // commit -- there is no backoff anywhere in that path. If the manager is
++    // still not connected, the new request is dropped too, and the renderer
++    // main thread, the browser UI thread and both IO threads spend every
++    // cycle creating and tearing down message pipes. On a two-core Atom that
++    // starves the in-process GPU thread whose job it is to *make* the
++    // connection, so the state never resolves: the window shows the one
++    // frame the root surface painted and Blink resolves no styles at all.
++    // Measured on this machine at 3/6, then 0/10 launches, with the two hot
++    // threads' stacks both inside RequestNewLayerTreeFrameSink.
++    //
++    // Fast machines never hit this because viz connects before any renderer
++    // asks, which is the assumption the upstream code makes silently.
++    static bool reported = false;
++    if (!reported) {
++      reported = true;
++      fprintf(stderr, "[RCH] CompositorFrameSink request for %s arrived "
++              "before the FrameSinkManager was connected; queued\n",
++              frame_sink_id.ToString().c_str());
++    }
++    PendingCreate pending;
++    pending.frame_sink_id = frame_sink_id;
++    pending.receiver = std::move(receiver);
++    pending.client = std::move(client);
++    pending_creates_.push_back(std::move(pending));
++    return;
++  }
++
++  data.is_root = false;
++  data.has_created_compositor_frame_sink = true;
++  frame_sink_manager_->CreateCompositorFrameSink(
+       frame_sink_id, std::move(receiver), std::move(client));
++}
++
++HostFrameSinkManager::PendingCreate::PendingCreate() = default;
++HostFrameSinkManager::PendingCreate::PendingCreate(PendingCreate&&) = default;
++HostFrameSinkManager::PendingCreate::~PendingCreate() = default;
++
++void HostFrameSinkManager::FlushPendingCreates() {
++  std::vector<PendingCreate> pending = std::move(pending_creates_);
++  pending_creates_.clear();
++  for (PendingCreate& p : pending) {
++    CreateCompositorFrameSink(p.frame_sink_id, std::move(p.receiver),
++                              std::move(p.client));
+   }
+ }
+ 
+@@ -332,6 +381,9 @@
+   receiver_.reset();
+   frame_sink_manager_remote_.reset();
+   frame_sink_manager_ = nullptr;
++  // Renderers re-request their sinks after a loss; anything still queued is
++  // a duplicate of what is about to arrive.
++  pending_creates_.clear();
+ 
+   // Any cached back buffers are invalid once the connection to the
+   // FrameSinkManager is lost.
+--- a/components/viz/host/host_frame_sink_manager.h
++++ b/components/viz/host/host_frame_sink_manager.h
+@@ -207,6 +207,22 @@
+   friend class HostFrameSinkManagerTest;
+   friend class HostFrameSinkManagerTestApi;
+ 
++  // A CompositorFrameSink request that arrived before the FrameSinkManager
++  // was connected. See CreateCompositorFrameSink() for why these are kept
++  // rather than dropped.
++  struct PendingCreate {
++    PendingCreate();
++    PendingCreate(PendingCreate&&);
++    ~PendingCreate();
++    FrameSinkId frame_sink_id;
++    mojo::PendingReceiver<mojom::CompositorFrameSink> receiver;
++    mojo::PendingRemote<mojom::CompositorFrameSinkClient> client;
++  };
++  std::vector<PendingCreate> pending_creates_;
++
++  // Replays |pending_creates_| once |frame_sink_manager_| is set.
++  void FlushPendingCreates();
++
+   struct FrameSinkData {
+     FrameSinkData();
+     FrameSinkData(FrameSinkData&& other);

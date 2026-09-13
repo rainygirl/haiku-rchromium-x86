@@ -1,0 +1,40 @@
+--- a/chromium/ui/base/clipboard/clipboard_ozone.cc
++++ b/chromium/ui/base/clipboard/clipboard_ozone.cc
+@@ -308,7 +308,12 @@
+ };
+ 
+ // Uses the factory in the clipboard_linux otherwise.
+-#if defined(OS_CHROMEOS) || !defined(OS_LINUX)
++// Haiku takes the clipboard_linux factory too: GN's is_desktop_linux pulls
++// clipboard_linux.cc into the build, but that file's factory is not guarded,
++// so keying this on OS_LINUX alone defines Clipboard::Create() twice here.
++// The Linux factory dispatches to ClipboardOzone, and IsUsingOzonePlatform()
++// is unconditionally true in a USE_OZONE build without USE_X11.
++#if defined(OS_CHROMEOS) || (!defined(OS_LINUX) && !defined(OS_HAIKU))
+ // Clipboard factory method.
+ Clipboard* Clipboard::Create() {
+ // linux-chromeos uses non-backed clipboard by default, but supports ozone x11
+--- a/chromium/ui/base/clipboard/clipboard_constants.h
++++ b/chromium/ui/base/clipboard/clipboard_constants.h
+@@ -37,7 +37,8 @@
+ COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES) extern const char kMimeTypePNG[];
+ 
+ // Linux-specific MIME type constants (also used in Fuchsia).
+-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
++#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA) \
++	|| defined(OS_HAIKU)
+ COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
+ extern const char kMimeTypeLinuxUtf8String[];
+ COMPONENT_EXPORT(UI_BASE_CLIPBOARD_TYPES)
+--- a/chromium/ui/base/clipboard/clipboard_constants.cc
++++ b/chromium/ui/base/clipboard/clipboard_constants.cc
+@@ -16,7 +16,8 @@
+ const char kMimeTypeRTF[] = "text/rtf";
+ const char kMimeTypePNG[] = "image/png";
+ 
+-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
++#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA) \
++	|| defined(OS_HAIKU)
+ const char kMimeTypeLinuxUtf8String[] = "UTF8_STRING";
+ const char kMimeTypeLinuxString[] = "STRING";
+ const char kMimeTypeLinuxText[] = "TEXT";

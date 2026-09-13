@@ -1,0 +1,49 @@
+content_shell's link step order-only-depends on the separate crashpad_handler
+executable being built, gated on:
+
+    if (is_win || is_linux || is_chromeos) {
+      data_deps += [ "//third_party/crashpad/crashpad/handler:crashpad_handler" ]
+    }
+
+Haiku is treated as is_linux = true in build/config/BUILDCONFIG.gn (a
+QtWebEngine/upstream design choice this port does not control -- see
+AGENTS.md), so this condition pulls crashpad_handler in for Haiku too, even
+though nothing about it was written with Haiku in mind.
+
+crashpad_handler's handler_main.cc dispatches its actual exception-handling
+implementation with #if defined(OS_LINUX) || defined(OS_CHROMEOS) ||
+defined(OS_ANDROID) / #elif defined(OS_APPLE) / #elif defined(OS_WIN) --
+Haiku matches none of these (OS_LINUX and OS_HAIKU are mutually exclusive,
+see build/build_config.h), so declarations meant to be picked by exactly one
+of those branches are missing entirely:
+
+    ../../third_party/crashpad/crashpad/handler/handler_main.cc:1133:3:
+    error: 'exception_handler_server' was not declared in this scope
+
+Unlike 0057 (a one-line width check) or 0059 (a one-line debug string), this
+is not a small gap: the Linux branch here is a full ptrace/pipe-based
+out-of-process crash handler built on Linux-specific process APIs
+(handler/linux/exception_handler_server.*, handler/linux/
+crash_report_exception_handler.*), and Haiku has no such upstream Crashpad
+support to fall back on. Reusing the Linux branch would risk a much larger,
+unverified cascade into Linux-only process-attach code; writing a real Haiku
+backend is out of scope for getting content_shell running at all.
+
+crashpad_handler is only ever launched by content_shell at runtime as a
+subprocess for out-of-process crash reporting -- content/shell never links
+handler_main.o into its own binary (confirmed: absent from content_shell's
+link line). Excluding Haiku from this data_dep means content_shell simply
+runs without an out-of-process crash handler, which is an acceptable gap for
+a Qt-free embedder bootstrap.
+
+--- a/chromium/content/shell/BUILD.gn
++++ b/chromium/content/shell/BUILD.gn
+@@ -527,7 +527,7 @@
+       }
+     }
+
+-    if (is_win || is_linux || is_chromeos) {
++    if ((is_win || is_linux || is_chromeos) && !is_haiku) {
+       data_deps +=
+           [ "//third_party/crashpad/crashpad/handler:crashpad_handler" ]
+     }

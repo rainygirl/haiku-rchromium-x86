@@ -1,0 +1,46 @@
+The final content_shell link fails with:
+
+    undefined reference to
+      `blink::WebTestingSupport::InjectInternalsObject(blink::WebLocalFrame*)'
+    undefined reference to
+      `blink::WebTestingSupport::InjectInternalsObject(v8::Local<v8::Context>)'
+
+Both call sites are guarded only at runtime, by the --expose-internals-for-
+testing switch, so the references survive to link time even though this port
+can never take them. The definitions live in blink's web-testing support,
+which U0001 already compiles out of this build along with the rest of the web
+test machinery.
+
+Guard the two call sites the same way U0001 guards the others.
+
+--- a/upstream/content_shell/renderer/shell_content_renderer_client.cc
++++ b/upstream/content_shell/renderer/shell_content_renderer_client.cc
+@@ -185,10 +185,12 @@
+ 
+ void ShellContentRendererClient::DidInitializeWorkerContextOnWorkerThread(
+     v8::Local<v8::Context> context) {
++#if !defined(OS_HAIKU)
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+           switches::kExposeInternalsForTesting)) {
+     blink::WebTestingSupport::InjectInternalsObject(context);
+   }
++#endif
+ }
+ 
+ #if BUILDFLAG(ENABLE_MOJO_CDM)
+--- a/upstream/content_shell/renderer/shell_render_frame_observer.cc
++++ b/upstream/content_shell/renderer/shell_render_frame_observer.cc
+@@ -18,11 +18,13 @@
+ ShellRenderFrameObserver::~ShellRenderFrameObserver() = default;
+ 
+ void ShellRenderFrameObserver::DidClearWindowObject() {
++#if !defined(OS_HAIKU)
+   auto& cmd = *base::CommandLine::ForCurrentProcess();
+   if (cmd.HasSwitch(switches::kExposeInternalsForTesting)) {
+     blink::WebTestingSupport::InjectInternalsObject(
+         render_frame()->GetWebFrame());
+   }
++#endif
+ }
+ 
+ void ShellRenderFrameObserver::OnDestruct() {

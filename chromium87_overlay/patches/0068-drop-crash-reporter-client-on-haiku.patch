@@ -1,0 +1,40 @@
+The final content_shell link fails with twelve crash_reporter symbols:
+
+    undefined reference to `crash_reporter::SetCrashReporterClient(...)'
+    undefined reference to `crash_reporter::InitializeCrashpad(bool, ...)'
+    undefined reference to `crash_reporter::CrashReporterClient::...'  (x10)
+
+This is unfinished business from 0060. That patch stopped content_shell from
+depending on the crashpad handler, and content_shell_app already drops
+//components/crash/core/app for Haiku a few lines above -- but it left
+app/shell_crash_reporter_client.cc in the target's sources. That file
+subclasses crash_reporter::CrashReporterClient, so removing the library that
+defines the base class leaves its entire vtable undefined, and
+shell_main_delegate.cc still calls SetCrashReporterClient/InitializeCrashpad.
+
+Note the exclusion has to go in content_shell_app, which owns those sources,
+not in content_shell_lib further down where the other is_haiku `deps -=`
+blocks live; GN rejects `sources -=` for an entry the target does not have.
+
+Drop the client source here; U0007 removes the call sites in the vendored
+shell_main_delegate.cc. crash_reporter::InitializeCrashKeys() is unaffected --
+it comes from //components/crash/core/common:crash_key, which stays.
+
+--- a/chromium/content/shell/BUILD.gn
++++ b/chromium/content/shell/BUILD.gn
+@@ -103,6 +103,15 @@
+       "//components/crash/core/app:test_support",
+     ]
+   }
++  if (is_haiku) {
++    # Those deps are what defines crash_reporter::*. Dropping them while still
++    # compiling the client that subclasses CrashReporterClient leaves its whole
++    # vtable undefined at the final link.
++    sources -= [
++      "app/shell_crash_reporter_client.cc",
++      "app/shell_crash_reporter_client.h",
++    ]
++  }
+   defines = [
+     "CONTENT_SHELL_VERSION=\"$content_shell_version\"",
+     "CONTENT_SHELL_MAJOR_VERSION=\"$content_shell_major_version\"",

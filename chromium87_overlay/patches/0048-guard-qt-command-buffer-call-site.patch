@@ -1,0 +1,20 @@
+--- a/chromium/gpu/ipc/client/command_buffer_proxy_impl.cc
++++ b/chromium/gpu/ipc/client/command_buffer_proxy_impl.cc
+@@ -126,6 +126,7 @@
+   // so it won't cause additional jank.
+   // TODO(piman): Make this asynchronous (http://crbug.com/125248).
+   ContextResult result = ContextResult::kSuccess;
++#if defined(TOOLKIT_QT)
+   bool create_async = !CreateCommandBufferSyncQt(
+       init_params,
+       channel->channel_id(),
+@@ -133,6 +134,9 @@
+       &region,
+       &result,
+       &capabilities_);
++#else
++  bool create_async = true;
++#endif
+   if (create_async) {
+     bool sent = channel->Send(new GpuChannelMsg_CreateCommandBuffer(
+         init_params, route_id_, std::move(region), &result, &capabilities_));

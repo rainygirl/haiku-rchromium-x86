@@ -1,0 +1,12 @@
+diff --git a/chromium/base/allocator/allocator.gni b/chromium/base/allocator/allocator.gni
+--- a/chromium/base/allocator/allocator.gni
++++ b/chromium/base/allocator/allocator.gni
+@@ -7,7 +7,7 @@ import("//build/config/sanitizers/sanitizers.gni")
+ 
+ # Temporarily disable tcmalloc on arm64 linux to get rid of compilation errors.
+ if (is_android || is_apple || is_asan || is_lsan || is_tsan || is_msan ||
+-    is_win || is_fuchsia ||
++    is_win || is_fuchsia || is_haiku ||
+     ((is_linux || is_chromeos) && target_cpu == "arm64") ||
+     (is_cast_audio_only && target_cpu == "arm")) {
+   _default_allocator = "none"

@@ -1,0 +1,8 @@
+diff --git a/chromium/BUILD.gn b/chromium/BUILD.gn
+--- a/chromium/BUILD.gn
++++ b/chromium/BUILD.gn
+@@ -987,3 +987,3 @@ if (is_fuchsia) {
+-if (!is_ios && !use_qt) {
++if (!is_ios && !is_haiku && !use_qt) {
+   # This group includes all of the targets needed to build and test Blink,
+   # including running web tests (see below). This target is defined here because

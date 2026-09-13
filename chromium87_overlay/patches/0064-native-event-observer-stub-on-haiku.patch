@@ -1,0 +1,32 @@
+The final content_shell link fails with:
+
+    undefined reference to
+      `content::responsiveness::NativeEventObserver::RegisterObserver()'
+    undefined reference to
+      `content::responsiveness::NativeEventObserver::DeregisterObserver()'
+
+native_event_observer.cc defines that pair once per platform family: a real
+implementation for OS_LINUX/OS_CHROMEOS built on ui::PlatformEventSource, one
+for OS_WIN, and an empty pair for OS_ANDROID/OS_FUCHSIA. Haiku matches none,
+so the methods are declared and never defined.
+
+The observer exists only to measure how long native event handling blocks the
+UI thread, and nothing in this port consumes that measurement. Join the
+platforms that opt out with empty bodies rather than wiring up Haiku's event
+source for it.
+
+--- a/chromium/content/browser/scheduler/responsiveness/native_event_observer.cc
++++ b/chromium/content/browser/scheduler/responsiveness/native_event_observer.cc
+@@ -78,10 +78,10 @@
+ }
+ #endif  // defined(OS_WIN)
+ 
+-#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
++#if defined(OS_ANDROID) || defined(OS_FUCHSIA) || defined(OS_HAIKU)
+ void NativeEventObserver::RegisterObserver() {}
+ void NativeEventObserver::DeregisterObserver() {}
+-#endif  // defined(OS_ANDROID) || defined(OS_FUCHSIA)
++#endif  // defined(OS_ANDROID) || defined(OS_FUCHSIA) || defined(OS_HAIKU)
+ 
+ }  // namespace responsiveness
+ }  // namespace content

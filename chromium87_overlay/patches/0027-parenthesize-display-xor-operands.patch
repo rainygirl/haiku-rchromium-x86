@@ -1,0 +1,14 @@
+diff --git a/chromium/ui/display/screen.cc b/chromium/ui/display/screen.cc
+--- a/chromium/ui/display/screen.cc
++++ b/chromium/ui/display/screen.cc
+@@ -105,8 +105,8 @@ void Screen::SetScopedDisplayForNewWindows(int64_t display_id) {
+   if (display_id == scoped_display_id_for_new_windows_)
+     return;
+   // Only allow set and clear, not switch.
+-  DCHECK(display_id == kInvalidDisplayId ^
+-         scoped_display_id_for_new_windows_ == kInvalidDisplayId)
++  DCHECK((display_id == kInvalidDisplayId) ^
++         (scoped_display_id_for_new_windows_ == kInvalidDisplayId))
+       << "display_id=" << display_id << ", scoped_display_id_for_new_windows_="
+       << scoped_display_id_for_new_windows_;
+   scoped_display_id_for_new_windows_ = display_id;

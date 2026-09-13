@@ -1,0 +1,13 @@
+diff --git a/chromium/base/task/sequence_manager/task_queue_impl.cc b/chromium/base/task/sequence_manager/task_queue_impl.cc
+--- a/chromium/base/task/sequence_manager/task_queue_impl.cc
++++ b/chromium/base/task/sequence_manager/task_queue_impl.cc
+@@ -1324,7 +1324,8 @@ void TaskQueueImpl::MaybeReportIpcTaskQueuedFromAnyThreadUnlocked(
+         ShouldReportIpcTaskQueuedFromAnyThreadLocked(&time_since_disabled);
+   }
+ 
+-  ReportIpcTaskQueued(pending_task, task_queue_name, time_since_disabled);
++  if (should_report)
++    ReportIpcTaskQueued(pending_task, task_queue_name, time_since_disabled);
+ }
+ 
+ void TaskQueueImpl::ReportIpcTaskQueued(

@@ -1,0 +1,178 @@
+#!/bin/sh
+# Trims GCC's peak memory so two large jumbo translation units can compile at
+# once on a 2 GB machine. Without this, -j2 through blink's core drove free
+# pages to "critical" repeatedly and a failed IOBuffer::LockMemory(1890 pages)
+# panicked in unlock_memory_etc().
+#
+# Deliberately a PATH wrapper rather than a change to the GN cflags: ninja
+# hashes the command string, so adding flags there would invalidate and rebuild
+# every one of the ~10,000 objects already built. The string stays "g++-x86".
+#
+# The params are only added to compiles. At link time they are not needed and
+# the driver would warn about them going unused.
+REAL="/boot/system/bin/x86/g++"
+for arg in "$@"; do
+	if [ "x$arg" = "x-c" ]; then
+		exec "$REAL" --param ggc-min-expand=10 --param ggc-min-heapsize=32768 "$@"
+	fi
+done
+
+# Not a compile, so this is a link. The final content_shell link is the one
+# step of this build that has never been attempted: 5,479 objects and 897
+# archives named on a 480 KB command line, against 1.4 GB of free RAM. ld
+# keeps every input mapped and, with --gc-sections and -Wl,-O2 both in the
+# ldflags GN generates, builds a whole-program section graph on top of that.
+#
+# If that link dies for want of memory, set RCHROMIUM_LINK_LOWMEM=1 and run it
+# again -- no rebuild, because this wrapper leaves ninja's command string
+# alone exactly as the compile branch above does. --no-keep-memory makes ld
+# re-read symbol tables instead of caching them, which is the documented trade
+# of speed for memory; --reduce-memory-overheads turns off some internal
+# caches as well. Both are off by default because they would also slow down
+# the hundreds of ordinary .so links that are working fine as they are.
+# GN puts -luuid on every link line unconditionally; Haiku has no libuuid in
+# the base system, and the tools this build needs it for (crashpad, the v8
+# snapshot generator) were not reached until 2026-08-30, so this had never
+# fired before. libuuid_x86_devel is installed into ~/config (--home, not the
+# system package set) and lands under ~/config/develop/lib/x86, which is not
+# on ld's default search path -- hence -L rather than expecting it to be found.
+UUID_LIB="/boot/home/config/develop/lib/x86"
+
+# Those two flags were not enough on their own. With --gc-sections and -Wl,-O2
+# still on the line, ld reached 141,614,983 bytes of the ~190 MB content_shell
+# and was killed by the kernel ("ld terminated with signal 21 [Kill Thread]").
+# Both build a whole-program view before anything can be written: --gc-sections
+# a reachability graph over every section, -O2 a string tail-merge pass.
+#
+# Removing them in build/config/compiler/BUILD.gn instead was tried and was
+# wrong twice over: it re-linked ~3900 targets, and it broke build tools that
+# only linked because --gc-sections was discarding unreachable code referencing
+# symbols Haiku lacks (protozero_plugin then failed on an undefined `wait4'
+# reached from perfetto's Subprocess::Start). Every other link on this build is
+# small and wants both flags kept.
+#
+# So drop them for the one output that cannot afford them, and only when the
+# caller has asked for the low-memory link. The cost is a bigger binary --
+# -ffunction-sections/-fdata-sections above still split everything out and now
+# nothing collects the unused parts -- which is the right trade for a binary
+# that otherwise cannot be linked at all.
+is_content_shell=no
+prev=""
+for arg in "$@"; do
+	if [ "x$prev" = "x-o" ]; then
+		case "$arg" in
+			./content_shell|content_shell) is_content_shell=yes ;;
+		esac
+	fi
+	prev="$arg"
+done
+
+if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
+	# RCHROMIUM_KEEP_GC=1 leaves --gc-sections and -Wl,-O2 on the content_shell
+	# line while still asking for --no-keep-memory/--reduce-memory-overheads.
+	# Dropping them made the binary large enough (172,967,599 bytes) that ld was
+	# killed writing it out anyway, three attempts running, always at the same
+	# size. gc-sections costs a reachability graph up front but produces a much
+	# smaller output, and the machine now has 8 GB of swap rather than the 2 GB
+	# it had when those flags were first removed -- a different trade than the
+	# one that decision was made under.
+	# Three settings, because the two flags are not the same trade.
+	#
+	#   (default)          drop --gc-sections and -Wl,-O2
+	#   RCHROMIUM_KEEP_GC  keep both
+	#   RCHROMIUM_GC_NO_O2 keep --gc-sections, drop -Wl,-O2
+	#
+	# --gc-sections pays for its reachability graph: without it the output is
+	# 172,967,599 bytes and ld was killed writing it out three times running;
+	# with it the intermediate is 141,635,463 and one attempt got all the way to
+	# a finished 188,538,052-byte binary. -Wl,-O2 is a string tail-merge pass,
+	# which costs a whole-program view for a small size gain -- so the third
+	# setting keeps the flag that shrinks the output and drops the one that only
+	# makes ld hold more at once.
+	if [ "x$is_content_shell" = "xyes" ] \
+		&& [ "x${RCHROMIUM_GC_NO_O2:-}" = "x1" ]; then
+		for arg in "$@"; do
+			case "$arg" in
+				-Wl,-O2) ;;
+				*) set -- "$@" "$arg" ;;
+			esac
+			shift
+		done
+	elif [ "x$is_content_shell" = "xyes" ] \
+		&& [ "x${RCHROMIUM_KEEP_GC:-}" != "x1" ]; then
+		for arg in "$@"; do
+			case "$arg" in
+				-Wl,--gc-sections|-Wl,-O2) ;;
+				*) set -- "$@" "$arg" ;;
+			esac
+			shift
+		done
+	fi
+	# RCHROMIUM_STRIP=1 adds -Wl,--strip-all to the content_shell link.
+	#
+	# The unstripped binary carries 506,023 symbols; ld builds that table in
+	# memory alongside everything else, and the link is close enough to the edge
+	# that it matters -- five consecutive attempts were killed at 141,651,847
+	# bytes with the two flags above already dropped.
+	#
+	# The cost is real: base/debug/stack_trace_posix.cc prints bare addresses
+	# from inside a signal handler, and scripts/resolve_haiku_stack.py turns
+	# those into names by reading .symtab out of this binary. A stripped build
+	# cannot be read that way. So strip to demonstrate or to ship, and relink
+	# unstripped on a freshly booted machine when a crash needs reading.
+	if [ "x$is_content_shell" = "xyes" ] \
+		&& [ "x${RCHROMIUM_STRIP:-}" = "x1" ]; then
+		set -- "$@" -Wl,--strip-all
+	fi
+
+	# RCHROMIUM_NO_BUILDID=1 drops -Wl,--build-id.
+	#
+	# ld computes the build id by hashing the finished image, so it holds the
+	# whole ~188 MB output to do it. Sampling one attempt every ten seconds
+	# (/boot/home/linkprobe.sh) showed free memory falling from 1.74 GB to
+	# 28 MB before the kill, so the margin is well under what that costs.
+	# Nothing in this port consumes a build id: crashpad is disabled on Haiku
+	# (patch 0060) and there is no symbol server to look one up in.
+	if [ "x$is_content_shell" = "xyes" ] \
+		&& [ "x${RCHROMIUM_NO_BUILDID:-}" = "x1" ]; then
+		for arg in "$@"; do
+			case "$arg" in
+				-Wl,--build-id) ;;
+				*) set -- "$@" "$arg" ;;
+			esac
+			shift
+		done
+	fi
+
+	# RCHROMIUM_NO_NKM=1 drops --no-keep-memory.
+	#
+	# That flag tells ld to re-read input sections from disk instead of holding
+	# them, which is the right trade when the shortage is address space. Here the
+	# shortage is physical pages, and the machine's weak point is the page
+	# writer: re-reading every input keeps the file cache churning and the disk
+	# busy for the whole link. Letting ld hold its inputs in its own heap instead
+	# puts that memory somewhere the 8 GB swap file can take it. Worth measuring
+	# against the default, since ten consecutive attempts with the flag on were
+	# killed at the same point.
+	# RCHROMIUM_LINK_NICE=<n> runs the link at a lower scheduling priority.
+	#
+	# What kills ld here is the low-resource manager firing when free physical
+	# pages go critical, not ld asking for more address space than it can have:
+	# it dies at the same 141,651,847-byte intermediate every time while the
+	# machine has 1.76 GB free at idle. The page writer is this machine's known
+	# weak point, and ld at full speed dirties pages faster than it can flush
+	# them. Giving ld less CPU does not lower its peak, but it does give the
+	# writer room to keep free pages above the threshold that triggers the
+	# kill. Cheap to try, and the alternative is waiting for a reboot.
+	NICE=""
+	if [ -n "${RCHROMIUM_LINK_NICE:-}" ]; then
+		NICE="nice -n ${RCHROMIUM_LINK_NICE}"
+	fi
+
+	if [ "x${RCHROMIUM_NO_NKM:-}" = "x1" ]; then
+		exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--reduce-memory-overheads "$@"
+	fi
+	exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--no-keep-memory -Wl,--reduce-memory-overheads "$@"
+fi
+
+exec "$REAL" -L"$UUID_LIB" "$@"

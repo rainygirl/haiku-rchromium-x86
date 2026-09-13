@@ -1,0 +1,29 @@
+shell_browser_main_parts.cc includes an Android-only header unconditionally:
+
+    ../../content/shell/browser/shell_browser_main_parts.cc:28:10: fatal error:
+    content/shell/android/shell_descriptors.h: No such file or directory
+
+QtWebEngine's distribution ships content/shell/android/ with only BUILD.gn in
+it, so the header genuinely is not there. The other three vendored Shell files
+that reference the same header -- app/shell_crash_reporter_client.cc,
+app/shell_main_delegate.cc, browser/shell_content_browser_client.cc -- all
+guard it behind `#if defined(OS_ANDROID)` and all three compiled fine. Only
+this one file has the include at top level, and it is still that way as late
+as upstream 95, so it is an upstream oversight that no non-Android build
+happened to trip over: nothing from the header is used anywhere in this file
+(grep for shell_descriptors or any symbol it declares finds only the include
+line itself; every OS_ANDROID block in the file is unrelated).
+
+Dropping the include is therefore the honest fix, and preferable to vendoring
+shell_descriptors.h under missing_sources/ for a file that would go unused.
+
+--- a/upstream/content_shell/browser/shell_browser_main_parts.cc
++++ b/upstream/content_shell/browser/shell_browser_main_parts.cc
+@@ -25,7 +25,6 @@
+ #include "content/public/common/main_function_params.h"
+ #include "content/public/common/result_codes.h"
+ #include "content/public/common/url_constants.h"
+-#include "content/shell/android/shell_descriptors.h"
+ #include "content/shell/browser/shell.h"
+ #include "content/shell/browser/shell_browser_context.h"
+ #include "content/shell/browser/shell_devtools_manager_delegate.h"

@@ -1,0 +1,87 @@
+diff --git a/chromium/base/check.cc b/chromium/base/check.cc
+--- a/chromium/base/check.cc
++++ b/chromium/base/check.cc
+@@ -6,7 +6,7 @@
+ // check.h is a widely included header and its size has significant impact on
+ // build time. Try not to raise this limit unless absolutely necessary. See
+ // https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+-#ifndef NACL_TC_REV
++#if defined(__clang__) && !defined(NACL_TC_REV)
+ #pragma clang max_tokens_here 17000
+ #endif
+ 
+diff --git a/chromium/base/check_op.cc b/chromium/base/check_op.cc
+--- a/chromium/base/check_op.cc
++++ b/chromium/base/check_op.cc
+@@ -6,7 +6,7 @@
+ // check_op.h is a widely included header and its size has significant impact on
+ // build time. Try not to raise this limit unless absolutely necessary. See
+ // https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+-#ifndef NACL_TC_REV
++#if defined(__clang__) && !defined(NACL_TC_REV)
+ #pragma clang max_tokens_here 244000
+ #endif
+ 
+diff --git a/chromium/base/debug/alias.cc b/chromium/base/debug/alias.cc
+--- a/chromium/base/debug/alias.cc
++++ b/chromium/base/debug/alias.cc
+@@ -6,7 +6,7 @@
+ // This is a widely included header and its size has significant impact on
+ // build time. Try not to raise this limit unless absolutely necessary. See
+ // https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+-#ifndef NACL_TC_REV
++#if defined(__clang__) && !defined(NACL_TC_REV)
+ #pragma clang max_tokens_here 250
+ #endif
+ 
+diff --git a/chromium/base/notreached.cc b/chromium/base/notreached.cc
+--- a/chromium/base/notreached.cc
++++ b/chromium/base/notreached.cc
+@@ -6,7 +6,7 @@
+ // This is a widely included header and its size has significant impact on
+ // build time. Try not to raise this limit unless absolutely necessary. See
+ // https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+-#ifndef NACL_TC_REV
++#if defined(__clang__) && !defined(NACL_TC_REV)
+ #pragma clang max_tokens_here 17000
+ #endif
+ 
+diff --git a/chromium/base/files/scoped_file.cc b/chromium/base/files/scoped_file.cc
+--- a/chromium/base/files/scoped_file.cc
++++ b/chromium/base/files/scoped_file.cc
+@@ -28,5 +28,7 @@ void ScopedFDCloseTraits::Free(int fd) {
+   // a single open directory would bypass the entire security model.
+   int ret = IGNORE_EINTR(close(fd));
+-#if !defined(OS_HAIKU)
++#if defined(OS_HAIKU)
++  (void)ret;
++#else
+ #if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_APPLE) || \
+     defined(OS_FUCHSIA) || defined(OS_ANDROID)
+diff --git a/chromium/base/linux_util.cc b/chromium/base/linux_util.cc
+--- a/chromium/base/linux_util.cc
++++ b/chromium/base/linux_util.cc
+@@ -137,5 +137,5 @@ bool GetThreadsForProcess(pid_t pid, std::vector<pid_t>* tids) {
+   // 25 > strlen("/proc//task") + strlen(std::to_string(INT_MAX)) + 1 = 22
+   char buf[25];
+-  strings::SafeSPrintf(buf, "/proc/%d/task", pid);
++  strings::SafeSPrintf(buf, "/proc/%d/task", static_cast<int>(pid));
+   DirReaderPosix dir_reader(buf);
+ 
+@@ -168,5 +168,6 @@ pid_t FindThreadIDWithSyscall(pid_t pid, const std::string& expected_data,
+   for (pid_t tid : tids) {
+     char buf[256];
+-    snprintf(buf, sizeof(buf), "/proc/%d/task/%d/syscall", pid, tid);
++    snprintf(buf, sizeof(buf), "/proc/%d/task/%d/syscall",
++             static_cast<int>(pid), static_cast<int>(tid));
+     ScopedFD fd(open(buf, O_RDONLY));
+     if (!fd.is_valid())
+@@ -194,5 +195,6 @@ pid_t FindThreadID(pid_t pid, pid_t ns_tid, bool* ns_pid_supported) {
+ 
+   for (pid_t tid : tids) {
+     char buf[256];
+-    snprintf(buf, sizeof(buf), "/proc/%d/task/%d/status", pid, tid);
++    snprintf(buf, sizeof(buf), "/proc/%d/task/%d/status",
++             static_cast<int>(pid), static_cast<int>(tid));
+     std::string status;
+     if (!ReadFileToString(FilePath(buf), &status))

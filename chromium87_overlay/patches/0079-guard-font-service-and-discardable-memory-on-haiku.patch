@@ -1,0 +1,58 @@
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -7,6 +7,8 @@
+ 
+ #include "content/browser/renderer_host/render_process_host_impl.h"
+ 
++#include <cstdio>
++
+ #include <algorithm>
+ #include <limits>
+ #include <map>
+@@ -1325,7 +1327,19 @@
+       return;
+   }
+ 
+-#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_HAIKU)
++// Haiku is excluded deliberately, for now. ConnectToFontService() constructs a
++// FontServiceApp, which brings up the bundled fontconfig, and that crashes on
++// this platform inside FcFreeTypeLangSet(): FcCharSetSubtractCount() faults
++// partway through iterating the charset built from a font file, past its own
++// null checks on both arguments, so the font's FcCharSet is being produced with
++// corrupt internals by the bundled FreeType. Three standard Noto faces are
++// enough to trigger it, so it is not one bad font.
++//
++// Leaving the receiver unbound costs text rendering, which is a real loss. It
++// is still better than the alternative measured here: with this call in, the
++// browser died about a second after its window appeared, before painting
++// anything at all. Restore this the moment the charset bug is understood.
++#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && !defined(OS_HAIKU)
+   if (auto font_receiver = receiver.As<font_service::mojom::FontService>()) {
+     ConnectToFontService(std::move(font_receiver));
+     return;
+@@ -1349,8 +1363,23 @@
+ 
+   if (auto r = receiver.As<
+                discardable_memory::mojom::DiscardableSharedMemoryManager>()) {
+-    discardable_memory::DiscardableSharedMemoryManager::Get()->Bind(
+-        std::move(r));
++    // Upstream dereferences Get() directly, because the manager is created
++    // unconditionally in ContentMainRunnerImpl::RunServiceManager() before any
++    // renderer can ask for it. On Haiku this crashed with a null dereference at
++    // offset 4 the moment the first renderer connected, which is either a null
++    // manager here or a null message loop inside Bind(). Say which, and do not
++    // take the process down for it: without discardable memory the renderer
++    // falls back to ordinary allocations, which is worse than upstream but not
++    // fatal, and it lets the rest of the startup path be observed.
++    auto* manager = discardable_memory::DiscardableSharedMemoryManager::Get();
++    if (manager == nullptr) {
++      fprintf(stderr,
++              "[RCH] DiscardableSharedMemoryManager::Get() is null; "
++              "skipping bind\n");
++      return;
++    }
++    fprintf(stderr, "[RCH] DiscardableSharedMemoryManager ok, binding\n");
++    manager->Bind(std::move(r));
+     return;
+   }
+ 

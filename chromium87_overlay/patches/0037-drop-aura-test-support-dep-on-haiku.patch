@@ -1,0 +1,21 @@
+--- a/chromium/content/shell/BUILD.gn
++++ b/chromium/content/shell/BUILD.gn
+@@ -330,11 +330,17 @@
+   if (use_aura) {
+     deps += [
+       "//ui/aura",
+-      "//ui/aura:test_support",
+       "//ui/events",
+       "//ui/wm",
+     ]
+ 
++    # ui/aura/test ships only its Ozone files in the pinned distribution, so
++    # //ui/aura:test_support cannot be built. shell_platform_data_aura.cc
++    # defines equivalent focus and window-parenting clients locally instead.
++    if (!is_haiku) {
++      deps += [ "//ui/aura:test_support" ]
++    }
++
+     if (toolkit_views && !is_chromecast) {
+       sources += [
+         "browser/shell_platform_delegate_views.cc",

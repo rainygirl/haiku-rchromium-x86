@@ -1,0 +1,30 @@
+The final content_shell link fails with:
+
+    undefined reference to
+      `ui::TouchHandleDrawableAura::TouchHandleDrawableAura(aura::Window*)'
+    undefined reference to `ui::TouchSelectionMenuRunner::GetInstance()'
+
+content/browser/renderer_host/input/touch_selection_controller_client_aura.cc
+is built here (it is in content/browser's unconditional source list and this
+port sets use_aura = true), but the two classes it uses live behind
+`if (use_aura && toolkit_views)` in ui/touch_selection, and this port sets
+toolkit_views = false.
+
+The toolkit_views half of that condition is not load-bearing for these two
+files: touch_handle_drawable_aura.cc includes only aura, aura_extra, ui/base,
+ui/events, ui/gfx and ui/resources, and touch_selection_menu_runner.cc
+includes only its own header and base/check_op.h. Neither reaches into views,
+and the deps the block adds (skia, aura, aura_extra, compositor, gfx,
+resources) are all already built for this configuration.
+
+--- a/chromium/ui/touch_selection/BUILD.gn
++++ b/chromium/ui/touch_selection/BUILD.gn
+@@ -37,7 +37,7 @@
+     "//ui/gfx/geometry",
+   ]
+ 
+-  if (use_aura && toolkit_views) {
++  if (use_aura && (toolkit_views || is_haiku)) {
+     deps += [
+       "//skia:skia",
+       "//ui/aura",

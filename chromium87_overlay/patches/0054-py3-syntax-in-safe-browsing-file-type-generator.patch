@@ -1,0 +1,44 @@
+Chromium 87 ships this generator as Python 2 and the build runs it as
+"python", which on this machine is 3.14. Three constructs are syntax errors
+there, and the first one aborts at parse time -- before any argument is read --
+so the target fails with SyntaxError rather than anything about file types:
+
+    print "ERROR: ..."        ->  print("ERROR: ...")   (x2)
+    PlatformTypes().iteritems()  ->  PlatformTypes().items()
+
+The alternative was pointing this one script at a Python 2, which Haiku does
+not package, or at the vendored one in third_party, which Chromium 87 does not
+carry for the host. Converting three lines is smaller than either and matches
+what upstream did to this same file in later branches.
+
+Note the -t linux argument in the failing command line: this generator has no
+Haiku platform type and is told to produce the Linux tables. That is
+deliberate and unrelated -- download file-type policy is not
+platform-specific in any way that matters to a browser shell.
+
+--- a/chromium/components/safe_browsing/core/resources/gen_file_type_proto.py
++++ b/chromium/components/safe_browsing/core/resources/gen_file_type_proto.py
+@@ -154,7 +154,7 @@
+       FilterForPlatformAndWrite(pb, platform_enum, outfile)
+     else:
+       # Make a separate file for each platform
+-      for platform_type, platform_enum in PlatformTypes().iteritems():
++      for platform_type, platform_enum in PlatformTypes().items():
+         # e.g. .../all/77/chromeos/download_file_types.pb
+         outfile = os.path.join(opts.outdir,
+                                str(pb.version_id),
+@@ -179,12 +179,12 @@
+ 
+   def VerifyArgs(self, opts):
+     if (not opts.all and opts.type not in PlatformTypes()):
+-      print "ERROR: Unknown platform type '%s'" % opts.type
++      print("ERROR: Unknown platform type '%s'" % opts.type)
+       self.opt_parser.print_help()
+       return False
+ 
+     if (bool(opts.all) == bool(opts.type)):
+-      print "ERROR: Need exactly one of --type or --all"
++      print("ERROR: Need exactly one of --type or --all")
+       self.opt_parser.print_help()
+       return False
+     return True

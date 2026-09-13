@@ -1,0 +1,31 @@
+file_type_policies.cc includes components/grit/components_resources.h and
+expects IDR_DOWNLOAD_FILE_TYPES_PB from it:
+
+    ../../components/safe_browsing/core/file_type_policies.cc:53:40: error:
+    'IDR_DOWNLOAD_FILE_TYPES_PB' was not declared in this scope
+
+That constant comes from components/resources/safe_browsing_resources.grdp,
+whose <part> line in components_resources.grd is commented out in this
+QtWebEngine-derived tree.
+
+content/shell/content_shell.ninja depends on file_type_policies.o, so this
+genuinely blocks content_shell, not just chrome/-only test binaries.
+
+Unlike the content/shell/resources/* omissions fixed earlier, this is not a
+missing-file case: the grdp file and the three web_ui resource files it
+includes (components/safe_browsing/content/web_ui/resources/safe_browsing.
+html/css/js) are all present in the checkout already, verified byte-identical
+to the pinned revision (see upstream/README.md). Only the <part> line
+referencing them was disabled -- this patch just uncomments it.
+
+--- a/chromium/components/resources/components_resources.grd
++++ b/chromium/components/resources/components_resources.grd
+@@ -21,7 +21,7 @@
+       <part file="ntp_tiles_resources.grdp" />
+       <part file="offline_pages_resources.grdp" />
+       <part file="printing_resources.grdp" />
+-<!--       <part file="safe_browsing_resources.grdp" /> -->
++      <part file="safe_browsing_resources.grdp" />
+       <part file="security_interstitials_resources.grdp" />
+ <!--       <part file="translate_resources.grdp" /> -->
+       <part file="version_ui_resources.grdp" />

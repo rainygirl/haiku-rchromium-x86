@@ -1,0 +1,72 @@
+A blanket `never_build_jumbo = is_haiku` on content/browser's "browser"
+target (an earlier version of this patch) stopped the wedge but cost far
+more than expected: un-merging turned 109 jumbo units into 833 individual
+compiles, and per-file times measured after that change show why jumbo
+existed in the first place -- most of these files pay several minutes each
+just parsing the same heavy Chromium/Mojo headers repeatedly:
+
+    appcache_namespace.o:           0.5 min
+    appcache_request.o:             1.5 min
+    appcache_response_info.o:       0.7 min
+    appcache_navigation_handle.o:   6.8 min
+    appcache_storage.o:             6.6 min
+    appcache_quota_client.o:        7.0 min
+    appcache_service_impl.o:        7.5 min
+    appcache_storage_impl.o:        8.3 min
+    appcache_internals_ui.o:       12.3 min
+    appcache_request_handler.o:    12.4 min
+
+Jumbo amortizes that header-parsing cost across every file in a merge group,
+which is why un-merging the whole target made total throughput roughly 3x
+worse for no benefit beyond the two files that actually caused a wedge.
+
+Going back to .ninja_log's per-*merged-group* history to separate a real
+single-file outlier from a diffusely-heavy group: browser_jumbo_13 (35.7 min)
+merged only three files -- browser_main_loop.cc, browser_main_runner_impl.cc
+(7 KB), browser_plugin_embedder.cc (5.7 KB) -- so its time is essentially
+browser_main_loop.cc alone, one of the heaviest single translation units
+anywhere in Chromium independent of this port. That is a genuine outlier
+worth excluding on its own.
+
+The appcache group (browser_jumbo_2/3/4/5/6, 21-33 min each merging ~8 files)
+is different: it is not one bad file dragging light partners, it is many
+moderately-heavy files (6-12 min each, per the individual measurements
+above) compounding together. Of those, appcache_internals_ui.cc and
+appcache_request_handler.cc are the two confirmed individually heaviest
+(12.3 and 12.4 min alone) -- excluding just these two from whichever jumbo
+group they land in removes the two heaviest single contributors without
+paying to un-merge the whole appcache subdirectory.
+
+This targets exactly the three files with real evidence of being unusually
+heavy, keeps jumbo (and jumbo_file_merge_limit=8) for everything else in
+content/browser, and does not reproduce the ~3x throughput loss the blanket
+disable caused. It does not eliminate every theoretical two-heavy-file
+pairing in the appcache group, but every unit remaining after this is closer
+to the 6-12 min range that never reproduced a wedge, rather than the
+21-35 min range that did.
+
+--- a/chromium/content/browser/BUILD.gn
++++ b/chromium/content/browser/BUILD.gn
+@@ -2064,6 +2064,22 @@
+     "web_package/web_bundle_blob_data_source.cc",
+   ]
+ 
++  if (is_haiku) {
++    # These three are the confirmed outliers from .ninja_log history: one
++    # (browser_main_loop.cc) is a whole 35.7-minute merged unit essentially
++    # by itself; the other two are the individually heaviest files measured
++    # (12.3 and 12.4 minutes alone) in an otherwise diffusely-heavy appcache
++    # group. Two of these landing on the machines two -j2 build slots at
++    # once is what repeatedly wedged the box outright (no panic, no debug
++    # output, dead mouse cursor -- see AGENTS.md, What the wedge is, and
++    # what it is not).
++    jumbo_excluded_sources += [
++      "browser_main_loop.cc",
++      "appcache/appcache_internals_ui.cc",
++      "appcache/appcache_request_handler.cc",
++    ]
++  }
++
+   if (toolkit_views) {
+     deps += [ "//ui/events" ]
+   }

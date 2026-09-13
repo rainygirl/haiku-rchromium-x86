@@ -1,0 +1,18 @@
+--- a/third_party/perfetto/src/base/subprocess.cc
++++ b/third_party/perfetto/src/base/subprocess.cc
+@@ -272,7 +272,15 @@
+   s_.waitpid_thread = std::thread([pid, exit_status_pipe_wr, rusage] {
+     int pid_stat = -1;
+     struct rusage usg {};
++#if PERFETTO_BUILDFLAG(PERFETTO_OS_HAIKU)
++    // Haiku has no wait4(). waitpid() supplies the exit status, which is the
++    // only thing this thread writes back through the pipe; usg stays
++    // zero-initialised, so the rusage fields assigned below read as 0 rather
++    // than as invented numbers. <sys/wait.h> is already included above.
++    int wait_res = PERFETTO_EINTR(waitpid(pid, &pid_stat, 0));
++#else
+     int wait_res = PERFETTO_EINTR(wait4(pid, &pid_stat, 0, &usg));
++#endif
+     PERFETTO_CHECK(wait_res == pid);
+ 
+     auto tv_to_ms = [](const struct timeval& tv) {

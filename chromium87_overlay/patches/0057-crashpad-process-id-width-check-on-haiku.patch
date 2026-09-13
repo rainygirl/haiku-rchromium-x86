@@ -1,0 +1,44 @@
+Crashpad's ProcessID alias asserts it is exactly `int`, which fails to compile
+on Haiku:
+
+    static_assert(std::is_same<ProcessID, int>::value, "Port.");
+    error: static assertion failed: Port.
+
+Haiku's pid_t is `signed long int` (headers/config/types.h's __haiku_int32),
+not `int`. The two are the same width on this 32-bit target -- so %d as
+PRI_PROCESS_ID already prints it correctly, and nothing downstream that reads
+ProcessID as a 32-bit value is wrong -- but they are distinct types to the
+compiler, so std::is_same is false where it holds on every other POSIX target
+this header supports.
+
+The assert exists to catch a genuine width mismatch, so Haiku gets a width
+check instead of a type-identity check, gated on OS_HAIKU (already defined by
+build/build_config.h) rather than widening the general POSIX case.
+
+This was unreached until 2026-08-30: nothing content_shell needs crashpad for
+had been linked before, because is_linux is true for Haiku in this port
+(build/config/BUILDCONFIG.gn) and crashpad's own BUILD.gn files gate most of
+it on is_linux -- so this is the first Haiku build to compile crashpad's
+process-identity code at all, not a regression.
+
+--- a/chromium/third_party/crashpad/crashpad/util/process/process_id.h
++++ b/chromium/third_party/crashpad/crashpad/util/process/process_id.h
+@@ -34,7 +34,18 @@
+ //! \brief Alias for platform-specific type to represent a process.
+ using ProcessID = pid_t;
+ constexpr ProcessID kInvalidProcessID = -1;
++// Haiku's pid_t is "signed long int" (headers/config/types.h), not int -- the
++// two are the same width on this 32-bit target but are distinct types to the
++// compiler, so std::is_same<pid_t, int> is false here even though it holds on
++// every other POSIX platform this file supports. The assert exists to catch a
++// genuine width mismatch, which %d as PRI_PROCESS_ID would get wrong; long and
++// int being the same width on Haiku x86 means %d already prints it correctly,
++// so relaxing the assert for this one platform does not weaken what it checks.
++#if defined(OS_HAIKU)
++static_assert(sizeof(ProcessID) == sizeof(int), "Port.");
++#else
+ static_assert(std::is_same<ProcessID, int>::value, "Port.");
++#endif
+ #define PRI_PROCESS_ID "d"
+ #elif defined(OS_WIN)
+ using ProcessID = DWORD;

@@ -1,0 +1,17 @@
+diff --git a/chromium/content/shell/BUILD.gn b/chromium/content/shell/BUILD.gn
+--- a/chromium/content/shell/BUILD.gn
++++ b/chromium/content/shell/BUILD.gn
+@@ -49,8 +49,11 @@ config("content_shell_lib_warnings") {
+   }
+ }
+
+-# Web test support not built on android, but is everywhere else.
+-support_web_tests = !is_android
++# Web test support not built on android, but is everywhere else. It is also
++# excluded on Haiku: the pinned qtwebengine-chromium distribution omits the
++# test-only source directories the web test runner links against, and the
++# R Chromium product is a browser rather than a layout test host.
++support_web_tests = !is_android && !is_haiku
+
+ source_set("android_shell_descriptors") {
+   testonly = true

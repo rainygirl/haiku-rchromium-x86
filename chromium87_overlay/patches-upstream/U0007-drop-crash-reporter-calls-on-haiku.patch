@@ -1,0 +1,49 @@
+Companion to patches 0060 and 0068. Those stop content_shell from linking the
+crashpad handler and the crash_reporter library on this port; this removes the
+call sites left behind in the vendored Content Shell sources, which otherwise
+fail the final link with:
+
+    undefined reference to `crash_reporter::SetCrashReporterClient(...)'
+    undefined reference to `crash_reporter::InitializeCrashpad(bool, ...)'
+    undefined reference to `crash_reporter::CrashReporterClient::...'
+
+Three edits, all extending an existing `!defined(OS_FUCHSIA)` guard, because
+Fuchsia opted out of exactly the same thing for the same reason (see the
+TODO(crbug.com/753619) above the block): the LazyInstance holding the
+ShellCrashReporterClient, the block that installs it and initialises crashpad,
+and that block's #endif comment.
+
+The ZygoteForked() path also calls InitializeCrashpad but is already behind
+`defined(OS_LINUX) || defined(OS_CHROMEOS)`, which Haiku does not satisfy --
+OS_HAIKU and OS_LINUX are mutually exclusive in build/build_config.h -- so it
+needs no change.
+
+--- a/upstream/content_shell/app/shell_main_delegate.cc
++++ b/upstream/content_shell/app/shell_main_delegate.cc
+@@ -80,7 +80,7 @@
+ 
+ namespace {
+ 
+-#if !defined(OS_FUCHSIA)
++#if !defined(OS_FUCHSIA) && !defined(OS_HAIKU)
+ base::LazyInstance<content::ShellCrashReporterClient>::Leaky
+     g_shell_crash_client = LAZY_INSTANCE_INITIALIZER;
+ #endif
+@@ -195,7 +195,7 @@
+ // Disable platform crash handling and initialize the crash reporter, if
+ // requested.
+ // TODO(crbug.com/753619): Implement crash reporter integration for Fuchsia.
+-#if !defined(OS_FUCHSIA)
++#if !defined(OS_FUCHSIA) && !defined(OS_HAIKU)
+   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+           switches::kEnableCrashReporter)) {
+     std::string process_type =
+@@ -211,7 +211,7 @@
+ #endif
+     }
+   }
+-#endif  // !defined(OS_FUCHSIA)
++#endif  // !defined(OS_FUCHSIA) && !defined(OS_HAIKU)
+ 
+   crash_reporter::InitializeCrashKeys();
+ 

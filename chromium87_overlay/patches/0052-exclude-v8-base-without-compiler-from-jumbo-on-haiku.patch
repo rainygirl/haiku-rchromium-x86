@@ -1,0 +1,16 @@
+--- a/chromium/v8/BUILD.gn
++++ b/chromium/v8/BUILD.gn
+@@ -2287,6 +2287,13 @@
+ }
+ 
+ v8_source_set("v8_base_without_compiler") {
++  # Fourth V8 target to exceed what a 32-bit compiler can hold once jumbo has
++  # merged it: four of its ten units are 1.0, 1.6, 1.8 and 1.8 MB, against the
++  # 925 KB that is the largest unit observed to compile on this machine. Its
++  # generated units only appeared after 0050 and 0051 changed the graph, which
++  # is why it is a separate patch.
++  never_build_jumbo = is_haiku
++
+   visibility = [ ":*" ]  # Only targets in this file can depend on this.
+ 
+   # Split static libraries on windows into two.

@@ -1,0 +1,11 @@
+diff --git a/chromium/base/system/sys_info_haiku.cc b/chromium/base/system/sys_info_haiku.cc
+--- a/chromium/base/system/sys_info_haiku.cc
++++ b/chromium/base/system/sys_info_haiku.cc
+@@ -27,7 +27,6 @@ int64_t SysInfo::AmountOfAvailablePhysicalMemoryImpl() {
+ 
+ // static
+ std::string SysInfo::CPUModelName() {
+-    system_info systemInfo;
+   NOTIMPLEMENTED();
+   return std::string();
+ }

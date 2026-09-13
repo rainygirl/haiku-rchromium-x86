@@ -1,0 +1,25 @@
+diff --git a/chromium/ui/ozone/BUILD.gn b/chromium/ui/ozone/BUILD.gn
+--- a/chromium/ui/ozone/BUILD.gn
++++ b/chromium/ui/ozone/BUILD.gn
+@@ -107,5 +107,6 @@ jumbo_component("ozone_base") {
+     "//ipc",
+     "//skia",
++    "//third_party/vulkan_headers",
+     "//ui/base/clipboard:clipboard_types",
+     "//ui/display",
+     "//ui/display/types",
+diff --git a/chromium/ui/ozone/public/surface_factory_ozone.h b/chromium/ui/ozone/public/surface_factory_ozone.h
+--- a/chromium/ui/ozone/public/surface_factory_ozone.h
++++ b/chromium/ui/ozone/public/surface_factory_ozone.h
+@@ -24,9 +24,10 @@
+ 
+ #if BUILDFLAG(ENABLE_VULKAN)
+ #include "gpu/vulkan/vulkan_implementation.h"
+-#include <vulkan/vulkan_core.h>
+ #endif
+ 
++#include <vulkan/vulkan_core.h>
++
+ namespace gfx {
+ class NativePixmap;
+ }

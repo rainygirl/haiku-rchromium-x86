@@ -1,0 +1,88 @@
+# The BView and BWindow subclasses, and only those.
+#
+# libbe.so is built with RTTI and relies on it: BWindow::_FindView() does a
+# dynamic_cast<BView*> for every message the window looper delivers. Chromium
+# builds with -fno-rtti, so a BView subclass compiled in an ordinary Chromium
+# target carries no typeinfo and that cast faults -- which is what killed
+# content_shell a second after its window appeared.
+#
+# This cannot be fixed by turning RTTI on for the ozone target as a whole: its
+# other classes derive from CursorFactory, PlatformScreen and
+# SurfaceFactoryOzone, and emitting typeinfo for those subclasses leaves
+# undefined references to base-class typeinfo that no -fno-rtti build provides.
+# Splitting the BeAPI-derived classes out is what makes both halves consistent.
+source_set("beapi_views") {
+  visibility = [ ":*" ]
+  sources = [
+    "haiku_beapi_looper.h",
+    "haiku_beapi_views.cc",
+    "haiku_browser_chrome.h",
+  ]
+
+  configs -= [ "//build/config/compiler:no_rtti" ]
+  configs += [ "//build/config/compiler:rtti" ]
+
+  defines = [ "OZONE_IMPLEMENTATION" ]
+  deps = [
+    "//base",
+    "//ui/base",
+    "//ui/events",
+    "//ui/gfx/geometry",
+    "//ui/platform_window",
+  ]
+  libs = [ "be" ]
+}
+
+source_set("ozone") {
+  # content_shell's Haiku platform delegate needs HaikuWindow and
+  # HaikuWindowManager: it has an aura WindowTreeHost, and therefore an
+  # AcceleratedWidget, but the toolbar it builds has to be attached to the
+  # BWindow underneath that widget. Nothing else in the tree reaches in here.
+  visibility = [
+    "//ui/ozone/*",
+    "//content/shell/*",
+  ]
+  sources = [
+    "client_native_pixmap_factory_haiku.cc",
+    "haiku_application.cc",
+    "haiku_application.h",
+    "haiku_beapi_looper.h",
+    "haiku_browser_chrome.h",
+    "haiku_clipboard.cc",
+    "haiku_clipboard.h",
+    "haiku_cursor_factory.cc",
+    "haiku_cursor_factory.h",
+    "haiku_event_translation.cc",
+    "haiku_event_translation.h",
+    "haiku_screen.cc",
+    "haiku_screen.h",
+    "haiku_surface_factory.cc",
+    "haiku_surface_factory.h",
+    "haiku_window.cc",
+    "haiku_window.h",
+    "haiku_window_manager.cc",
+    "haiku_window_manager.h",
+    "ozone_platform_haiku.cc",
+  ]
+
+  defines = [ "OZONE_IMPLEMENTATION" ]
+  deps = [
+    ":beapi_views",
+    "//base",
+    "//skia",
+    "//ui/base",
+    "//ui/base/cursor",
+    "//ui/base/cursor:cursor_base",
+    "//ui/base/ime",
+    "//ui/display",
+    "//ui/events",
+    "//ui/events/ozone/layout",
+    "//ui/events/platform",
+    "//ui/gfx/geometry",
+    "//ui/ozone:ozone_base",
+    "//ui/ozone/common",
+    "//ui/platform_window",
+    "//ui/platform_window/stub",
+  ]
+  libs = [ "be" ]
+}

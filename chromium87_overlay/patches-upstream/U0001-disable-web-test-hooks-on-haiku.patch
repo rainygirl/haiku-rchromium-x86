@@ -1,0 +1,67 @@
+--- a/upstream/content_shell/app/shell_main_delegate.cc
++++ b/upstream/content_shell/app/shell_main_delegate.cc
+@@ -40,7 +40,7 @@
+     content::RegisterIPCLogger(msg_id, logger)
+ #endif
+ 
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+ #include "content/web_test/browser/web_test_browser_main_runner.h"  // nogncheck
+ #include "content/web_test/browser/web_test_content_browser_client.h"  // nogncheck
+ #include "content/web_test/renderer/web_test_content_renderer_client.h"  // nogncheck
+@@ -170,7 +170,7 @@
+ 
+   InitLogging(command_line);
+ 
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+   if (switches::IsRunWebTestsSwitchPresent()) {
+     const bool browser_process =
+         command_line.GetSwitchValueASCII(switches::kProcessType).empty();
+@@ -229,7 +229,7 @@
+   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
+       kTraceEventBrowserProcessSortIndex);
+ 
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+   if (switches::IsRunWebTestsSwitchPresent()) {
+     // Web tests implement their own BrowserMain() replacement.
+     web_test_runner_->RunBrowserMain(main_function_params);
+@@ -331,7 +331,7 @@
+ }
+ 
+ ContentBrowserClient* ShellMainDelegate::CreateContentBrowserClient() {
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+   if (switches::IsRunWebTestsSwitchPresent()) {
+     browser_client_ = std::make_unique<WebTestContentBrowserClient>();
+     return browser_client_.get();
+@@ -347,7 +347,7 @@
+ }
+ 
+ ContentRendererClient* ShellMainDelegate::CreateContentRendererClient() {
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+   if (switches::IsRunWebTestsSwitchPresent()) {
+     renderer_client_ = std::make_unique<WebTestContentRendererClient>();
+     return renderer_client_.get();
+--- a/upstream/content_shell/app/shell_main_delegate.h
++++ b/upstream/content_shell/app/shell_main_delegate.h
+@@ -19,7 +19,7 @@
+ class ShellContentRendererClient;
+ class ShellContentUtilityClient;
+ 
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+ class WebTestBrowserMainRunner;
+ #endif
+ 
+@@ -52,7 +52,7 @@
+   // content_browsertests should not set the kRunWebTests command line flag, so
+   // |is_content_browsertests_| and |web_test_runner_| are mututally exclusive.
+   bool is_content_browsertests_;
+-#if !defined(OS_ANDROID)
++#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
+   // Only present when running web tests, which run inside Content Shell.
+   //
+   // Web tests are not browser tests, so |is_content_browsertests_| and

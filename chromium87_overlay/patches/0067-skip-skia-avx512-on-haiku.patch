@@ -1,0 +1,35 @@
+The final content_shell link fails with:
+
+    undefined reference to `SkOpts::Init_skx()'
+
+SkOpts.cpp declares Init_skx and calls it behind a runtime
+`SkCpu::Supports(SkCpu::SKX)` check, so the symbol must resolve even though it
+can never be reached on this machine -- the VAIO P's Atom Z520 has no AVX-512.
+Skia's `opts("skx")` source_set is not in this build's graph, so it does not.
+
+QtWebEngine already carries `#if !defined(TOOLKIT_QT)` around both the
+declaration and the call for the same reason; extend that guard rather than
+building an AVX-512 code path for a CPU that cannot execute it. `__HAIKU__` is
+used rather than OS_HAIKU because third_party/skia does not include Chromium's
+build_config.h.
+
+--- a/chromium/third_party/skia/src/core/SkOpts.cpp
++++ b/chromium/third_party/skia/src/core/SkOpts.cpp
+@@ -110,7 +110,7 @@
+     void Init_sse42();
+     void Init_avx();
+     void Init_hsw();
+-#if !defined(TOOLKIT_QT)
++#if !defined(TOOLKIT_QT) && !defined(__HAIKU__)
+     void Init_skx();
+ #endif
+     void Init_crc32();
+@@ -131,7 +131,7 @@
+             if (SkCpu::Supports(SkCpu::HSW)) { Init_hsw();   }
+         #endif
+ 
+-#if !defined(TOOLKIT_QT)
++#if !defined(TOOLKIT_QT) && !defined(__HAIKU__)
+         #if SK_CPU_SSE_LEVEL < SK_CPU_SSE_LEVEL_SKX
+             if (SkCpu::Supports(SkCpu::SKX)) { Init_skx(); }
+         #endif

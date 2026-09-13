@@ -1,0 +1,26 @@
+The final content_shell link fails with:
+
+    ioapi.c: undefined reference to `fopen64'
+    ioapi.c: undefined reference to `fseeko64'
+    ioapi.c: undefined reference to `ftello64'
+
+minizip's ioapi.h aliases the LFS spellings back to the plain ones for
+platforms whose libc lacks them, but its list is USE_FILE32API / __FreeBSD__ /
+_MSC_VER. Haiku is none of those, so ioapi.c is compiled against glibc-style
+names that Haiku's libroot does not have.
+
+Haiku's plain fopen/fseeko/ftello are already 64-bit capable and this build
+passes _FILE_OFFSET_BITS=64 globally, so aliasing is correct here for exactly
+the reason it is correct on FreeBSD.
+
+--- a/chromium/third_party/zlib/contrib/minizip/ioapi.h
++++ b/chromium/third_party/zlib/contrib/minizip/ioapi.h
+@@ -50,7 +50,7 @@
+ #define ftello64 ftell
+ #define fseeko64 fseek
+ #else
+-#ifdef __FreeBSD__
++#if defined(__FreeBSD__) || defined(__HAIKU__)
+ #define fopen64 fopen
+ #define ftello64 ftello
+ #define fseeko64 fseeko

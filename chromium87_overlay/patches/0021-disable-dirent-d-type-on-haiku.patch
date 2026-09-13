@@ -1,0 +1,38 @@
+diff --git a/chromium/third_party/fontconfig/src/src/fcstat.c b/chromium/third_party/fontconfig/src/src/fcstat.c
+--- a/chromium/third_party/fontconfig/src/src/fcstat.c
++++ b/chromium/third_party/fontconfig/src/src/fcstat.c
+@@ -156,7 +156,7 @@ Adler32Finish (struct Adler32 *ctx)
+     return ctx->a + (ctx->b << 16);
+ }
+ 
+-#ifdef HAVE_STRUCT_DIRENT_D_TYPE
++#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__HAIKU__)
+ /* dirent.d_type can be relied upon on FAT filesystem */
+ static FcBool
+ FcDirChecksumScandirFilter(const struct dirent *entry)
+@@ -267,6 +267,6 @@ FcDirChecksum (const FcChar8 *dir, time_t *checksum)
+ 
+     n = FcScandir ((const char *)dir, &files,
+-#ifdef HAVE_STRUCT_DIRENT_D_TYPE
++#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__HAIKU__)
+ 		 &FcDirChecksumScandirFilter,
+ #else
+ 		 NULL,
+@@ -281,7 +281,7 @@ FcDirChecksum (const FcChar8 *dir, time_t *checksum)
+ 	size_t dlen = strlen (files[n]->d_name);
+ 	int dtype;
+ 
+-#ifdef HAVE_STRUCT_DIRENT_D_TYPE
++#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__HAIKU__)
+ 	dtype = files[n]->d_type;
+ 	if (dtype == DT_UNKNOWN)
+ 	{
+@@ -312,7 +312,7 @@ FcDirChecksum (const FcChar8 *dir, time_t *checksum)
+ 
+ 	free (f);
+ 	dtype = statb.st_mode;
+-#ifdef HAVE_STRUCT_DIRENT_D_TYPE
++#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__HAIKU__)
+ 	}
+ #endif
+ 	Adler32Update (&ctx, files[n]->d_name, dlen + 1);

@@ -1,0 +1,81 @@
+--- a/base/base_paths_haiku.cc
++++ b/base/base_paths_haiku.cc
+@@ -4,17 +4,78 @@
+ 
+ #include "base/base_paths.h"
+ 
++#include <FindDirectory.h>
++#include <StorageDefs.h>
++#include <image.h>
+ #include <stdlib.h>
+ 
+ #include "base/base_paths_haiku.h"
+ #include "base/command_line.h"
++#include "base/files/file_path.h"
+ #include "base/files/file_util.h"
+ #include "base/path_service.h"
+ #include "base/process/process.h"
+ 
+ namespace base {
++namespace {
+ 
++// Haiku has no /proc/self/exe, and none of the sysctl or getexecname() routes
++// base_paths_posix.cc takes for the BSDs exist here either. The kernel does
++// track every image loaded into the team, though, and exactly one of them is
++// the application itself -- that is what B_APP_IMAGE marks. Its `name` field is
++// the absolute path the loader resolved, which is what FILE_EXE wants.
++bool GetExecutablePath(FilePath* result) {
++  image_info info;
++  int32 cookie = 0;
++  while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
++    if (info.type == B_APP_IMAGE) {
++      *result = FilePath(info.name);
++      return true;
++    }
++  }
++  return false;
++}
++
++bool GetFindDirectory(directory_which which, FilePath* result) {
++  char path[B_PATH_NAME_LENGTH];
++  // Volume -1 is the boot volume; do not create the directory just to answer a
++  // question about where it would be.
++  if (find_directory(which, -1, false, path, sizeof(path)) != B_OK)
++    return false;
++  *result = FilePath(path);
++  return true;
++}
++
++}  // namespace
++
++// Returning false for every key -- which is what this function used to do --
++// left FILE_EXE and FILE_MODULE with no provider at all on this platform, since
++// base_paths.cc's provider derives DIR_EXE and DIR_MODULE from them rather than
++// supplying them. Everything that asks where the executable lives then failed,
++// and the first thing content_shell does at startup is exactly that: DIR_ASSETS
++// resolves through DIR_MODULE, so icu_util.cc could not find icudtl.dat sitting
++// in its own directory and the process aborted before any window appeared.
+ bool PathProviderHaiku(int key, FilePath* result) {
++  switch (key) {
++    case FILE_EXE:
++    case FILE_MODULE:
++      return GetExecutablePath(result);
++    case DIR_SOURCE_ROOT: {
++      // Same convention as POSIX: tests run two levels below the source root,
++      // e.g. out/<config>/base_unittests.
++      FilePath path;
++      if (!PathService::Get(DIR_EXE, &path))
++        return false;
++      *result = path.DirName().DirName();
++      return true;
++    }
++    case DIR_USER_DESKTOP:
++      return GetFindDirectory(B_DESKTOP_DIRECTORY, result);
++    case DIR_CACHE:
++      return GetFindDirectory(B_USER_CACHE_DIRECTORY, result);
++    case DIR_APP_DATA:
++      return GetFindDirectory(B_USER_SETTINGS_DIRECTORY, result);
++  }
+   return false;
+ }
+ 

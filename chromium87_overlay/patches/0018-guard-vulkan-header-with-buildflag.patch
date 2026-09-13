@@ -1,0 +1,15 @@
+diff --git a/chromium/ui/ozone/public/surface_factory_ozone.h b/chromium/ui/ozone/public/surface_factory_ozone.h
+--- a/chromium/ui/ozone/public/surface_factory_ozone.h
++++ b/chromium/ui/ozone/public/surface_factory_ozone.h
+@@ -24,10 +24,9 @@
+ 
+ #if BUILDFLAG(ENABLE_VULKAN)
+ #include "gpu/vulkan/vulkan_implementation.h"
++#include <vulkan/vulkan_core.h>
+ #endif
+ 
+-#include <vulkan/vulkan_core.h>
+-
+ namespace gfx {
+ class NativePixmap;
+ }

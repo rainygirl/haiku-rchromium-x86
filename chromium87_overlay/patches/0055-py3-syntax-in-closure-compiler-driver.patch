@@ -1,0 +1,63 @@
+The same Python 2 problem as 0054, in the pair of scripts that drive the
+closure compiler for mojo's JavaScript bindings. js_binary.py is what the build
+invokes; compiler.py is the module it imports, and it has the same defect, so
+fixing only the first would move the failure one import deeper.
+
+    js_binary.py:126  print args.compiler, ...   ->  print(...)
+    js_binary.py:127  print errors               ->  print(errors)
+    compiler.py:66    print "(INFO) %s" % msg    ->  print(...)
+    compiler.py:74    print >> sys.stderr, ...   ->  print(..., file=sys.stderr)
+    compiler.py:313   print stderr               ->  print(stderr)
+
+Worth recording how this was missed. After 0054 the tree was swept for the same
+class of defect and the sweep reported zero, which was wrong: it called
+py_compile inside a try that also caught the generic Exception and counted that
+as a pass, so every SyntaxError that did not arrive wrapped as PyCompileError
+was silently treated as success. Redone with ast.parse -- which either returns
+or raises SyntaxError, with nothing in between -- the same 752 build-referenced
+scripts yield three failures: these two and testing/xvfb.py.
+
+xvfb.py is deliberately left alone. It is the test runner, has fifteen py2
+statements rather than five, and nothing content_shell builds invokes it. It is
+noted here so the next sweep does not read its absence as an oversight.
+
+--- a/chromium/third_party/closure_compiler/js_binary.py
++++ b/chromium/third_party/closure_compiler/js_binary.py
+@@ -123,8 +123,8 @@
+ 
+   returncode, errors = compiler.Compiler().run_jar(args.compiler, compiler_args)
+   if returncode != 0:
+-    print args.compiler, ' '.join(compiler_args)
+-    print errors
++    print(args.compiler, ' '.join(compiler_args))
++    print(errors)
+ 
+   return returncode
+ 
+--- a/chromium/third_party/closure_compiler/compiler.py
++++ b/chromium/third_party/closure_compiler/compiler.py
+@@ -63,7 +63,7 @@
+       msg: A debug message to log.
+     """
+     if self._verbose:
+-      print "(INFO) %s" % msg
++      print("(INFO) %s" % msg)
+ 
+   def _log_error(self, msg):
+     """Logs |msg| to stderr regardless of --flags.
+@@ -71,7 +71,7 @@
+     Args:
+       msg: An error message to log.
+     """
+-    print >> sys.stderr, "(ERROR) %s" % msg
++    print("(ERROR) %s" % msg, file=sys.stderr)
+ 
+   def run_jar(self, jar, args):
+     """Runs a .jar from the command line with arguments.
+@@ -310,5 +310,5 @@
+ 
+   if found_errors:
+     if opts.custom_sources:
+-      print stderr
++      print(stderr)
+     sys.exit(1)

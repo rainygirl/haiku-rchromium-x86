@@ -1,0 +1,19 @@
+diff --git a/chromium/BUILD.gn b/chromium/BUILD.gn
+--- a/chromium/BUILD.gn
++++ b/chromium/BUILD.gn
+@@ -67,4 +67,9 @@
+ group("gn_all") {
+   testonly = true
+ 
++  if (true) {
++    # The QtWebEngine source archive deliberately omits many Chromium test and
++    # utility inputs. Native Haiku builds only need explicitly selected targets.
++    deps = [ ":gn_visibility" ]
++  } else {
+   deps = [
+@@ -834,4 +839,5 @@ group("gn_all") {
+ 
+   # OpenCV
+   deps += [ "//third_party/opencv:opencv_emd_fuzzer" ]
++  }
+ }

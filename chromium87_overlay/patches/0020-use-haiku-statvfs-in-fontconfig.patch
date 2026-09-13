@@ -1,0 +1,42 @@
+diff --git a/chromium/third_party/fontconfig/src/src/fcstat.c b/chromium/third_party/fontconfig/src/src/fcstat.c
+--- a/chromium/third_party/fontconfig/src/src/fcstat.c
++++ b/chromium/third_party/fontconfig/src/src/fcstat.c
+@@ -27,19 +27,19 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+-#ifdef HAVE_SYS_VFS_H
++#if defined(HAVE_SYS_VFS_H) && !defined(__HAIKU__)
+ #include <sys/vfs.h>
+ #endif
+ #ifdef HAVE_SYS_STATVFS_H
+ #include <sys/statvfs.h>
+ #endif
+-#ifdef HAVE_SYS_STATFS_H
++#if defined(HAVE_SYS_STATFS_H) && !defined(__HAIKU__)
+ #include <sys/statfs.h>
+ #endif
+ #ifdef HAVE_SYS_PARAM_H
+ #include <sys/param.h>
+ #endif
+-#ifdef HAVE_SYS_MOUNT_H
++#if defined(HAVE_SYS_MOUNT_H) && !defined(__HAIKU__)
+ #include <sys/mount.h>
+ #endif
+ #include <errno.h>
+@@ -358,7 +358,14 @@ FcFStatFs (int fd, FcStatFS *statb)
+     int ret = -1;
+     FcBool flag = FcFalse;
+ 
+-#if defined(HAVE_FSTATVFS) && (defined(HAVE_STRUCT_STATVFS_F_BASETYPE) || defined(HAVE_STRUCT_STATVFS_F_FSTYPENAME))
++#if defined(__HAIKU__)
++    struct statvfs buf;
++
++    memset (statb, 0, sizeof (FcStatFS));
++
++    /* Haiku exposes fstatvfs(), but no filesystem type-name member. */
++    ret = fstatvfs (fd, &buf);
++#elif defined(HAVE_FSTATVFS) && (defined(HAVE_STRUCT_STATVFS_F_BASETYPE) || defined(HAVE_STRUCT_STATVFS_F_FSTYPENAME))
+     struct statvfs buf;
+ 
+     memset (statb, 0, sizeof (FcStatFS));

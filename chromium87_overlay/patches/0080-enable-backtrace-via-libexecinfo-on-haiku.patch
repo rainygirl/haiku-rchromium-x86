@@ -1,0 +1,105 @@
+--- a/base/debug/stack_trace_posix.cc
++++ b/base/debug/stack_trace_posix.cc
+@@ -27,12 +27,30 @@
+ #include <string>
+ #include <vector>
+ 
++#if defined(OS_HAIKU) && defined(USE_SYMBOLIZE)
++// base/BUILD.gn defines USE_SYMBOLIZE under "if (is_linux || is_chromeos)",
++// and GN sets is_linux for Haiku. But google::Symbolize() finds the ELF image
++// for an address by reading /proc/self/maps, and Haiku has no such file --
++// base/debug/proc_maps_linux.cc is a stub on this platform. Haiku's own
++// backtrace_symbols() resolves through get_nearest_symbol() on the loaded
++// image instead, which works and gives real function names, so use that path.
++#undef USE_SYMBOLIZE
++#define RCH_HAIKU_UNDEFINED_USE_SYMBOLIZE
++#endif
++
+ #if !defined(USE_SYMBOLIZE)
+ #include <cxxabi.h>
+ #endif
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++#if !defined(__UCLIBC__) && !defined(_AIX)
++#if defined(OS_HAIKU)
++extern "C" {
++int backtrace(void** buffer, int size);
++char** backtrace_symbols(void* const* buffer, int size);
++}
++#else
+ #include <execinfo.h>
+ #endif
++#endif
+ 
+ #if defined(OS_APPLE)
+ #include <AvailabilityMacros.h>
+@@ -91,7 +109,7 @@
+   // Note: code in this function is NOT async-signal safe (std::string uses
+   // malloc internally).
+ 
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++#if !defined(__UCLIBC__) && !defined(_AIX)
+   std::string::size_type search_from = 0;
+   while (search_from < text->size()) {
+     // Look for the start of a mangled symbol, from search_from.
+@@ -138,7 +156,7 @@
+   virtual ~BacktraceOutputHandler() = default;
+ };
+ 
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++#if !defined(__UCLIBC__) && !defined(_AIX)
+ void OutputPointer(void* pointer, BacktraceOutputHandler* handler) {
+   // This should be more than enough to store a 64-bit number in hex:
+   // 16 hex digits + 1 for null-terminator.
+@@ -842,7 +860,7 @@
+   // NOTE: This code MUST be async-signal safe (it's used by in-process
+   // stack dumping signal handler). NO malloc or stdio is allowed here.
+ 
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++#if !defined(__UCLIBC__) && !defined(_AIX)
+   // Though the backtrace API man page does not list any possible negative
+   // return values, we take no chance.
+   return base::saturated_cast<size_t>(backtrace(trace, count));
+@@ -855,7 +873,7 @@
+ // NOTE: This code MUST be async-signal safe (it's used by in-process
+ // stack dumping signal handler). NO malloc or stdio is allowed here.
+ 
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++#if !defined(__UCLIBC__) && !defined(_AIX)
+   PrintBacktraceOutputHandler handler;
+   ProcessBacktrace(trace_, count_, prefix_string, &handler);
+ #endif
+@@ -863,14 +881,12 @@
+ 
+ void StackTrace::OutputToStreamWithPrefix(std::ostream* os,
+                                           const char* prefix_string) const {
+-// Haiku has no backtrace(), so there is nothing to walk here. Keep the
+-// function itself, though: stack_trace.h declares it unconditionally and
+-// stack_trace.cc calls it from StackTrace::OutputToStream(), operator<< and
+-// TaskTrace::OutputToStream(), none of which this platform excludes -- so
+-// dropping the whole definition, as the surrounding guard used to, left three
+-// undefined references at the final content_shell link. PrintWithPrefix()
+-// directly above already has the right shape: keep the symbol, empty the body.
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
++// The definition stays outside the guard on purpose: stack_trace.h declares
++// this unconditionally and stack_trace.cc calls it from OutputToStream(),
++// operator<< and TaskTrace::OutputToStream(), none of which this platform
++// excludes, so guarding the whole definition left three undefined references
++// at the final content_shell link.
++#if !defined(__UCLIBC__) && !defined(_AIX)
+   StreamBacktraceOutputHandler handler(os);
+   ProcessBacktrace(trace_, count_, prefix_string, &handler);
+ #endif
+@@ -944,3 +960,13 @@
+ 
+ }  // namespace debug
+ }  // namespace base
++
++#if defined(RCH_HAIKU_UNDEFINED_USE_SYMBOLIZE)
++// This target is built with use_jumbo_build, so several .cc files share one
++// translation unit and a preprocessor change made here outlives this file.
++// base/debug/debugger_posix.cc is the only other user of USE_SYMBOLIZE in
++// base, and merge_for_jumbo.py places it ahead of this file, but put the
++// define back rather than depend on that ordering.
++#define USE_SYMBOLIZE
++#undef RCH_HAIKU_UNDEFINED_USE_SYMBOLIZE
++#endif

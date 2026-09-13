@@ -1,0 +1,37 @@
+#!/bin/sh
+# Trims GCC's peak memory so two large jumbo translation units can compile at
+# once on a 2 GB machine. Without this, -j2 through blink's core drove free
+# pages to "critical" repeatedly and a failed IOBuffer::LockMemory(1890 pages)
+# panicked in unlock_memory_etc().
+#
+# Deliberately a PATH wrapper rather than a change to the GN cflags: ninja
+# hashes the command string, so adding flags there would invalidate and rebuild
+# every one of the ~10,000 objects already built. The string stays "gcc-x86".
+#
+# The params are only added to compiles. At link time they are not needed and
+# the driver would warn about them going unused.
+REAL="/boot/system/bin/x86/gcc"
+for arg in "$@"; do
+	if [ "x$arg" = "x-c" ]; then
+		exec "$REAL" --param ggc-min-expand=10 --param ggc-min-heapsize=32768 "$@"
+	fi
+done
+
+# Not a compile, so this is a link. The final content_shell link is the one
+# step of this build that has never been attempted: 5,479 objects and 897
+# archives named on a 480 KB command line, against 1.4 GB of free RAM. ld
+# keeps every input mapped and, with --gc-sections and -Wl,-O2 both in the
+# ldflags GN generates, builds a whole-program section graph on top of that.
+#
+# If that link dies for want of memory, set RCHROMIUM_LINK_LOWMEM=1 and run it
+# again -- no rebuild, because this wrapper leaves ninja's command string
+# alone exactly as the compile branch above does. --no-keep-memory makes ld
+# re-read symbol tables instead of caching them, which is the documented trade
+# of speed for memory; --reduce-memory-overheads turns off some internal
+# caches as well. Both are off by default because they would also slow down
+# the hundreds of ordinary .so links that are working fine as they are.
+if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
+	exec "$REAL" -Wl,--no-keep-memory -Wl,--reduce-memory-overheads "$@"
+fi
+
+exec "$REAL" "$@"

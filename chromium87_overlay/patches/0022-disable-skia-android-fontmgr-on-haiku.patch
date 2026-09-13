@@ -1,0 +1,13 @@
+diff --git a/chromium/third_party/skia/gn/skia.gni b/chromium/third_party/skia/gn/skia.gni
+--- a/chromium/third_party/skia/gn/skia.gni
++++ b/chromium/third_party/skia/gn/skia.gni
+@@ -100,7 +100,8 @@ declare_args() {
+ 
+ declare_args() {
+   skia_compile_sksl_tests = skia_compile_processors
+-  skia_enable_fontmgr_android = skia_use_expat && skia_use_freetype
++  skia_enable_fontmgr_android =
++      skia_use_expat && skia_use_freetype && !is_haiku
+   skia_enable_fontmgr_custom_directory = skia_use_freetype && !is_fuchsia
+   skia_enable_fontmgr_custom_embedded = skia_use_freetype && !is_fuchsia
+   skia_enable_fontmgr_custom_empty = skia_use_freetype

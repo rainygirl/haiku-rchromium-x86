@@ -1,0 +1,22 @@
+--- a/content/zygote/BUILD.gn
++++ b/content/zygote/BUILD.gn
+@@ -5,7 +5,18 @@
+ import("//build/config/nacl/config.gni")
+ import("//content/public/common/zygote/features.gni")
+ 
+-if (is_linux || is_chromeos) {
++# The zygote is Linux's fork-server, and none of it applies here: Haiku has no
++# clone() namespaces and no setuid sandbox, so content/public/common/zygote's
++# features.gni already sets use_zygote_handle to false for this platform and the
++# ZygoteMain() call in content_main_runner_impl.cc is compiled out with it.
++# Building the sources anyway only produced an object nothing calls, referencing
++# six symbols this platform does not define -- sandbox::Credentials,
++# sandbox::NamespaceSandbox, sandbox::policy::SandboxLinux and
++# base::InitUniqueIdForProcessInPidNamespace -- which is exactly how they turned
++# up at the final content_shell link. is_linux is true on Haiku (GN sets it) so
++# it has to be excluded explicitly; the empty group below is what content/app's
++# unconditional dependency then resolves to.
++if ((is_linux && !is_haiku) || is_chromeos) {
+   source_set("zygote") {
+     sources = [
+       "zygote_linux.cc",

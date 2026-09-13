@@ -1,0 +1,57 @@
+--- a/content/browser/zygote_host/zygote_host_impl_linux.cc
++++ b/content/browser/zygote_host/zygote_host_impl_linux.cc
+@@ -73,6 +73,18 @@
+ }
+ 
+ void ZygoteHostImpl::Init(const base::CommandLine& command_line) {
++#if defined(OS_HAIKU)
++  // Haiku builds none of the Linux sandbox. sandbox/linux/BUILD.gn sets both
++  // compile_suid_client and compile_credentials to (is_linux && !is_haiku),
++  // so sandbox::Credentials and sandbox::SetuidSandboxHost are declared but
++  // never defined, and every reference to them here goes undefined at the
++  // final link. There is no sandbox to configure, which leaves this host in
++  // exactly the state the --no-sandbox path below produces: both
++  // use_namespace_sandbox_ and use_suid_sandbox_ stay false, and that is what
++  // LaunchZygote() tests.
++  (void)command_line;
++  return;
++#else
+   if (command_line.HasSwitch(sandbox::policy::switches::kNoSandbox)) {
+     return;
+   }
+@@ -123,6 +135,7 @@
+            "you can try using --"
+         << sandbox::policy::switches::kNoSandbox << ".";
+   }
++#endif  // defined(OS_HAIKU)
+ }
+ 
+ void ZygoteHostImpl::AddZygotePid(pid_t pid) {
+@@ -159,6 +172,7 @@
+       !cmd_line->HasSwitch(sandbox::policy::switches::kNoZygoteSandbox);
+ 
+   base::ScopedFD dummy_fd;
++#if !defined(OS_HAIKU)
+   if (is_sandboxed_zygote && use_suid_sandbox_) {
+     std::unique_ptr<sandbox::SetuidSandboxHost> sandbox_host(
+         sandbox::SetuidSandboxHost::Create());
+@@ -166,11 +180,19 @@
+     sandbox_host->SetupLaunchOptions(&options, &dummy_fd);
+     sandbox_host->SetupLaunchEnvironment();
+   }
++#endif
+ 
++#if defined(OS_HAIKU)
++  // Both flags the ternary below tests are permanently false on Haiku (see
++  // Init above), so take the plain path rather than naming
++  // sandbox::NamespaceSandbox, which has no definition on this platform.
++  base::Process process = base::LaunchProcess(*cmd_line, options);
++#else
+   base::Process process =
+       (is_sandboxed_zygote && use_namespace_sandbox_)
+           ? sandbox::NamespaceSandbox::LaunchProcess(*cmd_line, options)
+           : base::LaunchProcess(*cmd_line, options);
++#endif
+   CHECK(process.IsValid()) << "Failed to launch zygote process";
+ 
+   dummy_fd.reset();

@@ -1,0 +1,13 @@
+--- a/chromium/third_party/webrtc/rtc_base/event_tracer.cc
++++ b/chromium/third_party/webrtc/rtc_base/event_tracer.cc
+@@ -171,6 +171,10 @@
+                 ", \"pid\": %d"
+ #if defined(WEBRTC_WIN)
+                 ", \"tid\": %lu"
++#elif defined(__HAIKU__)
++                // Haiku's thread_id is a long, so rtc::PlatformThreadId is
++                // wider than the int that %d expects.
++                ", \"tid\": %ld"
+ #else
+                 ", \"tid\": %d"
+ #endif  // defined(WEBRTC_WIN)

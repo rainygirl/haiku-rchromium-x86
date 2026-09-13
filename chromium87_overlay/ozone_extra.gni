@@ -1,0 +1,3 @@
+ozone_external_platforms = [ "haiku" ]
+ozone_external_platform_deps = [ "//haiku_port/ozone" ]
+ozone_external_platform_test_deps = []

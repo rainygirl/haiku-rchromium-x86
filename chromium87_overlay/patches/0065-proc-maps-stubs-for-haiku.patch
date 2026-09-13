@@ -1,0 +1,29 @@
+The final content_shell link fails with:
+
+    undefined reference to `base::debug::ReadProcMaps(std::string*)'
+    undefined reference to `base::debug::ParseProcMaps(std::string const&,
+        std::vector<base::debug::MappedMemoryRegion, ...>*)'
+
+The HaikuPorts patchset drops base/debug/proc_maps_linux.cc for Haiku, which
+is right -- it parses /proc/self/maps and Haiku has no /proc -- but unlike
+every other file it removes there (process_handle, process_metrics,
+platform_thread, sys_info, file_path_watcher all gain a Haiku or stub
+replacement) it supplies nothing in its place. base/debug/stack_trace_posix.cc
+still compiles its SandboxSymbolizeHelper, because USE_SYMBOLIZE is on for
+this build, and calls both entry points.
+
+Add the replacement alongside the other Haiku sources. The file itself is
+vendored at chromium87_overlay/upstream/missing_sources/base/debug/
+proc_maps_haiku.cc; both stubs report "no maps", which every caller already
+handles by symbolizing without them.
+
+--- a/chromium/base/BUILD.gn
++++ b/chromium/base/BUILD.gn
+@@ -2013,6 +2013,7 @@
+       "process/process_handle_haiku.cc",
+       "process/process_iterator_haiku.cc",
+       "process/process_metrics_haiku.cc",
++      "debug/proc_maps_haiku.cc",
+       "threading/platform_thread_haiku.cc",
+       "system/sys_info_haiku.cc"
+     ]

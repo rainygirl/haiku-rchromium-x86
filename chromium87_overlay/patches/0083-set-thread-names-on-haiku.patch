@@ -1,0 +1,28 @@
+--- a/base/threading/platform_thread_haiku.cc
++++ b/base/threading/platform_thread_haiku.cc
+@@ -2,6 +2,8 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include <OS.h>
++
+ #include "base/threading/platform_thread.h"
+ 
+ #include <pthread.h>
+@@ -73,7 +75,15 @@
+ 
+ // static
+ void PlatformThread::SetName(const std::string& name) {
+-  
++  ThreadIdNameManager::GetInstance()->SetName(name);
++
++  // Push the name into the kernel too. Until this did, every Chromium thread
++  // showed up in ps, top, get_next_thread_info() and the crash reporter as
++  // "content_shell pthread", which made a stalled browser -- four threads
++  // burning both cores with nothing rendering -- impossible to attribute:
++  // the thread list said only that *something* was spinning. B_OS_NAME_LENGTH
++  // is 32, so long names are cut; Chromium's are all short.
++  rename_thread(find_thread(nullptr), name.c_str());
+ }
+ 
+ }  // namespace base

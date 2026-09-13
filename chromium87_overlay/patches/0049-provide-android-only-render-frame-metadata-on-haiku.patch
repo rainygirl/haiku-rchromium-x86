@@ -1,0 +1,64 @@
+--- a/chromium/cc/trees/render_frame_metadata.h
++++ b/chromium/cc/trees/render_frame_metadata.h
+@@ -88,7 +88,7 @@
+   viz::VerticalScrollDirection new_vertical_scroll_direction =
+       viz::VerticalScrollDirection::kNull;
+ 
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+   // Used to position Android bottom bar, whose position is computed by the
+   // renderer compositor.
+   float bottom_controls_height = 0.f;
+--- a/chromium/cc/trees/render_frame_metadata.cc
++++ b/chromium/cc/trees/render_frame_metadata.cc
+@@ -35,7 +35,7 @@
+          external_page_scale_factor == other.external_page_scale_factor &&
+          top_controls_height == other.top_controls_height &&
+          top_controls_shown_ratio == other.top_controls_shown_ratio &&
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+          bottom_controls_height == other.bottom_controls_height &&
+          bottom_controls_shown_ratio == other.bottom_controls_shown_ratio &&
+          top_controls_min_height_offset ==
+--- a/chromium/cc/mojom/render_frame_metadata_mojom_traits.h
++++ b/chromium/cc/mojom/render_frame_metadata_mojom_traits.h
+@@ -84,7 +84,7 @@
+     return metadata.new_vertical_scroll_direction;
+   }
+ 
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+   static float bottom_controls_height(const cc::RenderFrameMetadata& metadata) {
+     return metadata.bottom_controls_height;
+   }
+--- a/chromium/cc/mojom/render_frame_metadata_mojom_traits.cc
++++ b/chromium/cc/mojom/render_frame_metadata_mojom_traits.cc
+@@ -27,7 +27,7 @@
+   out->external_page_scale_factor = data.external_page_scale_factor();
+   out->top_controls_height = data.top_controls_height();
+   out->top_controls_shown_ratio = data.top_controls_shown_ratio();
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+   out->bottom_controls_height = data.bottom_controls_height();
+   out->bottom_controls_shown_ratio = data.bottom_controls_shown_ratio();
+   out->top_controls_min_height_offset = data.top_controls_min_height_offset();
+@@ -40,7 +40,7 @@
+ #endif
+   return data.ReadRootScrollOffset(&out->root_scroll_offset) &&
+          data.ReadSelection(&out->selection) &&
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+          data.ReadScrollableViewportSize(&out->scrollable_viewport_size) &&
+          data.ReadRootLayerSize(&out->root_layer_size) &&
+ #endif
+--- a/chromium/cc/trees/layer_tree_host_impl.cc
++++ b/chromium/cc/trees/layer_tree_host_impl.cc
+@@ -2205,7 +2205,7 @@
+       browser_controls_offset_manager_->TopControlsHeight();
+   metadata.top_controls_shown_ratio =
+       browser_controls_offset_manager_->TopControlsShownRatio();
+-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
++#if defined(OS_ANDROID) || defined(TOOLKIT_QT) || defined(OS_HAIKU)
+   metadata.bottom_controls_height =
+       browser_controls_offset_manager_->BottomControlsHeight();
+   metadata.bottom_controls_shown_ratio =

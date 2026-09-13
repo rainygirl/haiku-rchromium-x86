@@ -1,0 +1,13 @@
+diff --git a/chromium/ui/gfx/ipc/buffer_types/gfx_param_traits.cc b/chromium/ui/gfx/ipc/buffer_types/gfx_param_traits.cc
+--- a/chromium/ui/gfx/ipc/buffer_types/gfx_param_traits.cc
++++ b/chromium/ui/gfx/ipc/buffer_types/gfx_param_traits.cc
+@@ -30,6 +30,8 @@ void ParamTraits<gfx::BufferUsageAndFormat>::Log(
+     const gfx::BufferUsageAndFormat& p,
+     std::string* l) {
+-  l->append(base::StringPrintf("(%d, %d)", p.usage, p.format));
++  l->append(base::StringPrintf("(%d, %d)",
++                               static_cast<int>(p.usage),
++                               static_cast<int>(p.format)));
+ }
+ 
+ }  // namespace IPC

@@ -1,0 +1,25 @@
+diff --git a/chromium/BUILD.gn b/chromium/BUILD.gn
+--- a/chromium/BUILD.gn
++++ b/chromium/BUILD.gn
+@@ -42,4 +42,5 @@ declare_args() {
+   # in files.
+   root_extra_deps = []
+   qtwebengine_target = "//tools/gn"
++  rchromium_target = "//content/shell:content_shell"
+ }
+@@ -1410,6 +1411,12 @@ assert(
+ group("qtwebengine") {
+-    if (!use_qt) {
+-        testonly = true
++    if (use_qt) {
++        deps = [ qtwebengine_target ]
+     }
+-    deps = [ qtwebengine_target ]
++}
++
++# The native Haiku port has no Qt product-layer dependency. Keep its root
++# target separate so generated Ninja metadata also reflects that boundary.
++group("rchromium") {
++    testonly = true
++    deps = [ rchromium_target ]
+ }

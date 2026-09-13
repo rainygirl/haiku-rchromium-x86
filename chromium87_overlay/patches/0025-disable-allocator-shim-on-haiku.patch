@@ -1,0 +1,12 @@
+diff --git a/chromium/base/allocator/allocator.gni b/chromium/base/allocator/allocator.gni
+--- a/chromium/base/allocator/allocator.gni
++++ b/chromium/base/allocator/allocator.gni
+@@ -18,7 +18,7 @@ else {
+ # The debug CRT on Windows has some debug features that are incompatible with
+ # the shim. NaCl in particular does seem to link some binaries statically
+ # against the debug CRT with "is_nacl=false".
+-if ((is_linux || is_chromeos || is_android || is_apple ||
++if (((is_linux && !is_haiku) || is_chromeos || is_android || is_apple ||
+      (is_win && !is_component_build && !is_debug)) && !is_asan && !is_hwasan &&
+     !is_lsan && !is_tsan && !is_msan) {
+   _default_use_allocator_shim = true

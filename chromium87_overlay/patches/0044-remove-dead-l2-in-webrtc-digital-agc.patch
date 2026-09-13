@@ -1,0 +1,18 @@
+--- a/chromium/third_party/webrtc/modules/audio_processing/agc/legacy/digital_agc.cc
++++ b/chromium/third_party/webrtc/modules/audio_processing/agc/legacy/digital_agc.cc
+@@ -294,15 +294,12 @@
+   int16_t gate, gain_adj;
+   int16_t k;
+   size_t n, L;
+-  int16_t L2;  // samples/subframe
+ 
+   // determine number of samples per ms
+   if (FS == 8000) {
+     L = 8;
+-    L2 = 3;
+   } else if (FS == 16000 || FS == 32000 || FS == 48000) {
+     L = 16;
+-    L2 = 4;
+   } else {
+     return -1;
+   }

@@ -1,0 +1,35 @@
+The field trial testing config generator is handed current_os verbatim, so on
+this port it receives "haiku" and stops:
+
+    fieldtrial_to_struct.py: error: option --platform: invalid choice: 'haiku'
+    (choose from 'android', ..., 'linux', 'mac', 'windows')
+
+The fix belongs in the GN rule, not in the script's platform list. That script
+converts the name into a Study::PLATFORM_<NAME> constant from
+components/variations/proto/study.proto; teaching it "haiku" would emit a
+reference to PLATFORM_HAIKU, which does not exist in the proto, and move the
+failure from the generator to the compile. The rule already has precedent for
+this kind of mapping -- it rewrites "win" to "windows" two lines above.
+
+Linux is the right name to map to. These are field trial *testing*
+configurations, and a trial gated on the Linux platform applies to this port
+for the same reasons it applies to Linux.
+
+--- a/chromium/components/variations/field_trial_config/BUILD.gn
++++ b/chromium/components/variations/field_trial_config/BUILD.gn
+@@ -25,6 +25,15 @@
+ 
+   if (current_os == "win") {
+     platform = "windows"
++  } else if (current_os == "haiku") {
++    # fieldtrial_to_struct.py turns this into a Study::PLATFORM_<NAME> constant
++    # from components/variations/proto/study.proto, so it can only be given a
++    # name that enum already has -- adding "haiku" to the script's list would
++    # generate a reference to PLATFORM_HAIKU and break the compile instead of
++    # the generator. Linux is the honest choice here: these are field trial
++    # test configurations, and every trial gated on the Linux platform applies
++    # to this port for the same reasons.
++    platform = "linux"
+   } else {
+     platform = current_os
+   }

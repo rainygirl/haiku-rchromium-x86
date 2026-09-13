@@ -1,0 +1,10 @@
+diff --git a/chromium/BUILD.gn b/chromium/BUILD.gn
+--- a/chromium/BUILD.gn
++++ b/chromium/BUILD.gn
+@@ -1410,3 +1410,6 @@
+ group("qtwebengine") {
++    if (!use_qt) {
++        testonly = true
++    }
+     deps = [ qtwebengine_target ]
+ }

@@ -1,0 +1,38 @@
+The final content_shell link fails with:
+
+    ld: obj/content/browser/browser/browser_jumbo_99.o: in function
+      `content::FontEnumerationCache::GetInstance()':
+    multiple definition of `content::FontEnumerationCache::GetInstance()';
+      obj/content/browser/browser/browser_jumbo_34.o: first defined here
+
+The same "GN treats Haiku as is_linux, C++ does not" split as the undefined
+symbols, but landing the other way round -- as a duplicate rather than a gap.
+
+content/browser/BUILD.gn builds font_access/font_enumeration_cache_fontconfig.cc
+for Haiku (an earlier patch added is_haiku to that condition), and that file
+defines GetInstance(). The shared font_enumeration_cache.cc defines it too, but
+only as a fallback:
+
+    #if !defined(PLATFORM_HAS_LOCAL_FONT_ENUMERATION_IMPL)
+
+and the macro is set in font_enumeration_cache.h for OS_WIN / OS_LINUX /
+OS_CHROMEOS / OS_MAC. Haiku is none of those, so the fallback compiled as well
+and both definitions reached the link.
+
+Haiku genuinely does have a local implementation here -- the fontconfig one is
+being built and used -- so declaring that is the correct fix rather than
+dropping the fontconfig source. This also keeps font_access_manager_impl.cc
+consistent, which branches on the same macro in two places to decide whether
+local font enumeration is available at all.
+
+--- a/chromium/content/browser/font_access/font_enumeration_cache.h
++++ b/chromium/content/browser/font_access/font_enumeration_cache.h
+@@ -16,7 +16,7 @@
+ #include "third_party/blink/public/mojom/font_access/font_access.mojom.h"
+ 
+ #if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS) || \
+-    defined(OS_MAC)
++    defined(OS_MAC) || defined(OS_HAIKU)
+ #define PLATFORM_HAS_LOCAL_FONT_ENUMERATION_IMPL 1
+ #endif
+ 

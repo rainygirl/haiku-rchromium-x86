@@ -1,0 +1,11 @@
+--- a/chromium/third_party/angle/BUILD.gn
++++ b/chromium/third_party/angle/BUILD.gn
+@@ -21,7 +21,7 @@
+   # Use the PCI lib to collect GPU information on Linux.
+   use_libpci =
+       (is_linux || is_chromeos) && (!is_chromecast || is_cast_desktop_build) &&
+-      (angle_use_x11 || use_ozone) && angle_has_build
++      (angle_use_x11 || use_ozone) && angle_has_build && !is_haiku
+ 
+   # Link in system libGL, to work with apitrace.  See doc/DebuggingTips.md.
+   angle_link_glx = false

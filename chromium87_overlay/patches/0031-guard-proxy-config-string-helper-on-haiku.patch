@@ -1,0 +1,23 @@
+diff --git a/chromium/net/proxy_resolution/proxy_config_service_linux.cc b/chromium/net/proxy_resolution/proxy_config_service_linux.cc
+--- a/chromium/net/proxy_resolution/proxy_config_service_linux.cc
++++ b/chromium/net/proxy_resolution/proxy_config_service_linux.cc
+@@ -502,18 +502,18 @@ bool SettingGetterImplGSettings::CheckVersion(
+   VLOG(1) << "All gsettings tests OK. Will get proxy config from gsettings.";
+   return true;
+ }
+ #endif  // defined(USE_GIO)
+
++#if !defined(OS_HAIKU)
+ // Converts |value| from a decimal string to an int. If there was a failure
+ // parsing, returns |default_value|.
+ int StringToIntOrDefault(base::StringPiece value, int default_value) {
+   int result;
+   if (base::StringToInt(value, &result))
+     return result;
+   return default_value;
+ }
+
+-#if !defined(OS_HAIKU)
+ // This is the KDE version that reads kioslaverc and simulates gsettings.
+ // Doing this allows the main Delegate code, as well as the unit tests
+ // for it, to stay the same - and the settings map fairly well besides.

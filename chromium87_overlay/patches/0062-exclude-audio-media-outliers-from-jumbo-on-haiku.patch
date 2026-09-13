@@ -1,0 +1,58 @@
+Two consecutive watchdog restarts both failed to make any progress past
+edge 60556 (browser_jumbo_45.o, the last unit before this patch's targets):
+ninja never spawned a new compiler after that point, and after 30-45 minutes
+of no .ninja_log growth and no toolchain process running, the watchdog gave
+up and parked, requiring manual intervention.
+
+Manually running ninja under close observation reproduced it a third time:
+memory dropped from 1.9 GB free to 46 MB free in under two minutes while
+browser_jumbo_46.o and browser_jumbo_47.o compiled concurrently at -j2, and
+was aborted with SIGINT just before the machine would very likely have
+wedged outright (the same VM/paging defect documented in AGENTS.md's "What
+the wedge is, and what it is not" -- this is the second target in as many
+days to trigger it, after the appcache/browser_main_loop.cc case fixed by
+0061).
+
+Rather than guess again, this was measured directly: each of the 14 files
+across browser_jumbo_46 and browser_jumbo_47 was compiled standalone
+(un-merged, one at a time, -j1) with peak memory sampled every second:
+
+    audio_stream_broker.cc:                111 s,  511 MB
+    audio_stream_monitor.cc:               490 s, 1350 MB  <- outlier
+    browser_feature_provider.cc:            24 s,  334 MB
+    audio_mirroring_manager.cc:             35 s,  350 MB
+    desktop_capture_device_uma_types.cc:    18 s,  318 MB
+    desktop_streams_registry_impl.cc:       29 s,  344 MB
+    web_contents_audio_muter.cc:           135 s,  577 MB
+    web_contents_tracker.cc:               131 s,  566 MB
+    cdm_registry_impl.cc:                   21 s,  323 MB
+    desktop_media_window_registry.cc:        1 s,  265 MB
+    desktop_media_window_registry_aura.cc:  78 s,  451 MB
+    flinging_renderer.cc:                  444 s, 1270 MB  <- outlier
+    forwarding_audio_stream_factory.cc:    493 s, 1366 MB  <- outlier
+    hardware_key_media_controller.cc:       55 s,  397 MB
+
+Three files -- all in content/browser/media, all wrapping heavy audio
+service Mojo IPC interfaces -- are genuine single-file outliers at 1.27-1.37
+GB each, comparable in kind to browser_main_loop.cc (0061) even though none
+of them are especially large as raw source (largest is 13 KB). Any two of
+these landing in the same -j2 window, whether merged into the same jumbo
+unit or two different ones scheduled concurrently, sums to more than this
+machine's 2 GB of RAM.
+
+Same fix as 0061, same jumbo_excluded_sources list (is_haiku-gated), just
+three more entries. The other eleven files measured here are unremarkable
+(265-577 MB, well within what -j2 already handles safely elsewhere in this
+build) and are left in jumbo.
+
+--- a/chromium/content/browser/BUILD.gn
++++ b/chromium/content/browser/BUILD.gn
+@@ -2077,5 +2077,8 @@
+       "browser_main_loop.cc",
+       "appcache/appcache_internals_ui.cc",
+       "appcache/appcache_request_handler.cc",
++      "media/audio_stream_monitor.cc",
++      "media/flinging_renderer.cc",
++      "media/forwarding_audio_stream_factory.cc",
+     ]
+   }

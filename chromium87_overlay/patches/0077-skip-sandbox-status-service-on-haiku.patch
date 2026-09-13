@@ -1,0 +1,16 @@
+--- a/content/shell/BUILD.gn
++++ b/content/shell/BUILD.gn
+@@ -304,7 +304,12 @@
+     deps += [ "//gin" ]
+   }
+ 
+-  if (is_linux || is_chromeos) {
++  # Reports the state of the Linux sandbox over mojo, so it is built on
++  # sandbox/policy's SandboxLinux -- which Haiku does not compile. Nothing in
++  # content/shell names SandboxStatusService; this is a dependency edge only,
++  # and dropping it removes the last two undefined sandbox symbols from the
++  # final link. is_linux is true on Haiku, hence the explicit exclusion.
++  if ((is_linux && !is_haiku) || is_chromeos) {
+     deps += [ "//services/service_manager/tests:sandbox_status_service" ]
+   }
+ 

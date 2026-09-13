@@ -1,0 +1,31 @@
+MinidumpMiscInfoDebugBuildString() enumerates OS_MAC/OS_IOS/OS_ANDROID/
+OS_LINUX/OS_CHROMEOS/OS_WIN/OS_FUCHSIA and #errors on anything else:
+
+    ../../third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc:123:2:
+    error: #error define kOS for this operating system
+
+Crashpad's own tree already has real OS_HAIKU handling in numerous
+neighboring files (util/misc/address_types.h, util/misc/capture_context.h,
+util/posix/signals.cc, util/posix/symbolic_constants_posix.cc,
+util/process/process_id.h -- the last one patched here already in 0057);
+this one function was simply never given a Haiku branch. Confirmed this gap
+exists in the pinned upstream revision itself (not something our tree
+diverged into), so it is a genuine upstream omission, not a QtWebEngine
+source-drop artifact.
+
+kOS here only feeds a human-readable debug build string embedded in the
+minidump ("dbghelp.i386,...,<kOS>"), so "haiku" is the honest value -- it
+does not need to match any enum or generated constant the way the field
+trial platform name did (0056).
+
+--- a/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc
++++ b/chromium/third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc
+@@ -117,6 +117,8 @@
+   static constexpr char kOS[] = "win";
+ #elif defined(OS_FUCHSIA)
+   static constexpr char kOS[] = "fuchsia";
++#elif defined(OS_HAIKU)
++  static constexpr char kOS[] = "haiku";
+ #else
+ #error define kOS for this operating system
+ #endif

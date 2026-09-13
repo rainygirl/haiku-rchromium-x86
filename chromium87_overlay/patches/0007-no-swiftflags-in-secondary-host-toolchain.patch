@@ -1,0 +1,8 @@
+diff --git a/chromium/build/config/compiler/BUILD.gn b/chromium/build/config/compiler/BUILD.gn
+--- a/chromium/build/config/compiler/BUILD.gn
++++ b/chromium/build/config/compiler/BUILD.gn
+@@ -2364,3 +2364,3 @@ config("symbols") {
+-    if (is_apple && !use_qt) {
++    if (is_apple && !use_qt && current_toolchain == default_toolchain) {
+       swiftflags = [ "-g" ]
+     }

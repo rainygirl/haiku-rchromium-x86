@@ -1,0 +1,12 @@
+# This target deliberately starts with the Haiku lifecycle adapter only. The
+# PlatformWindow and canvas implementations are added here as their Chromium
+# interfaces are brought up on the synced revision.
+source_set("ozone") {
+  visibility = [ "//ui/ozone/*" ]
+  sources = [
+    "haiku_application.cc",
+    "haiku_application.h",
+  ]
+  deps = [ "//base" ]
+  libs = [ "be" ]
+}

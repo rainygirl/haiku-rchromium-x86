@@ -1,0 +1,11 @@
+--- a/chromium/third_party/crashpad/crashpad/util/posix/double_fork_and_exec.cc
++++ b/chromium/third_party/crashpad/crashpad/util/posix/double_fork_and_exec.cc
+@@ -25,7 +25,7 @@
+ #include "base/strings/stringprintf.h"
+ #include "util/posix/close_multiple.h"
+ 
+-#if defined(OS_HAIKU)
++#if defined(OS_HAIKU) && !defined(WCOREDUMP)
+ #define WCOREDUMP(x) WIFCORED(x)
+ #endif
+ 

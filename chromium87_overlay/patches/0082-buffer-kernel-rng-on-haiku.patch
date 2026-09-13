@@ -1,0 +1,111 @@
+--- a/base/rand_util_posix.cc
++++ b/base/rand_util_posix.cc
+@@ -8,12 +8,18 @@
+ #include <fcntl.h>
+ #include <stddef.h>
+ #include <stdint.h>
++#include <string.h>
+ #include <unistd.h>
+ 
+ #include "base/check.h"
+ #include "base/compiler_specific.h"
+ #include "base/files/file_util.h"
+ #include "base/no_destructor.h"
++#if defined(OS_HAIKU)
++#include <sys/types.h>
++
++#include "base/synchronization/lock.h"
++#endif
+ #include "base/posix/eintr_wrapper.h"
+ #include "build/build_config.h"
+ 
+@@ -54,6 +60,72 @@
+   const int fd_;
+ };
+ 
++
++#if defined(OS_HAIKU)
++// Haiku's kernel RNG costs about 2 ms per call once its pool is drained by
++// rapid successive reads: 2000 sequential 16-byte reads of /dev/urandom
++// measured 4.08 s total, and getentropy() is no faster (it draws from the
++// same source). Chromium calls RandBytes thousands of times during a single
++// page load -- every Mojo message-pipe id is a RandUint64 -- so at 2 ms each
++// the compositor's RequestNewLayerTreeFrameSink and the storage service's
++// startup both stalled for tens of seconds, and the browser dropped into a
++// storage-service reconnect loop. That is what made a launch render only
++// about one time in three (diagnosed by walking the stacks of the two
++// CPU-spinning threads: both sat in ReadFromFD <- RandUint64 <-
++// CreateMessagePipe).
++//
++// A bulk read is far cheaper per byte than repeated small reads (~2.3 ms for
++// 1 KiB versus ~2 ms *each* for 16 bytes), so read the kernel RNG in blocks
++// and hand out slices. The bytes are still unmodified kernel entropy; only
++// the number of syscalls changes.
++//
++// Fork safety: this port launches child processes by exec (no
++// fork-without-exec, no zygote), so a child never inherits a filled buffer --
++// exec discards the address space and the child fills its own. The pid guard
++// is belt-and-braces should that ever change.
++class HaikuUrandomBuffer {
++ public:
++  void Fill(void* output, size_t length) {
++    char* out = static_cast<char*>(output);
++    base::AutoLock guard(lock_);
++
++    const pid_t pid = getpid();
++    if (pid != pid_) {
++      pid_ = pid;
++      offset_ = sizeof(buffer_);  // force a refill after a fork
++    }
++
++    // A request larger than the buffer is rare (some callers draw big blocks);
++    // serve it straight from the fd rather than looping refills.
++    if (length >= sizeof(buffer_)) {
++      CHECK(base::ReadFromFD(base::GetUrandomFD(), out, length));
++      return;
++    }
++
++    while (length > 0) {
++      if (offset_ >= sizeof(buffer_)) {
++        CHECK(base::ReadFromFD(base::GetUrandomFD(), reinterpret_cast<char*>(buffer_),
++                         sizeof(buffer_)));
++        offset_ = 0;
++      }
++      size_t take = sizeof(buffer_) - offset_;
++      if (take > length)
++        take = length;
++      memcpy(out, buffer_ + offset_, take);
++      offset_ += take;
++      out += take;
++      length -= take;
++    }
++  }
++
++ private:
++  base::Lock lock_;
++  pid_t pid_ = 0;
++  size_t offset_ = sizeof(buffer_);  // starts empty
++  unsigned char buffer_[8192];
++};
++#endif  // defined(OS_HAIKU)
++
+ }  // namespace
+ 
+ namespace base {
+@@ -91,10 +163,16 @@
+   //
+   // TODO(crbug.com/995996): When we no longer need to support old Linux
+   // kernels, we can get rid of this /dev/urandom branch altogether.
++#if defined(OS_HAIKU)
++  static base::NoDestructor<HaikuUrandomBuffer> buffer;
++  buffer->Fill(output, output_length);
++  return;
++#else
+   const int urandom_fd = GetUrandomFD();
+   const bool success =
+       ReadFromFD(urandom_fd, static_cast<char*>(output), output_length);
+   CHECK(success);
++#endif
+ }
+ 
+ int GetUrandomFD() {

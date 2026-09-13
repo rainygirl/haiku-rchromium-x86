@@ -1,0 +1,32 @@
+--- a/upstream/content_shell/app/shell_main_delegate.cc
++++ b/upstream/content_shell/app/shell_main_delegate.cc
+@@ -229,7 +229,20 @@
+   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
+       kTraceEventBrowserProcessSortIndex);
+ 
+-#if !defined(OS_ANDROID) && !defined(OS_HAIKU)
++// Haiku belongs on the non-Android side of this, and used to be excluded from
++// it -- which quietly meant it took the Android branch below. That branch only
++// creates a BrowserMainRunner, calls Initialize() on it and returns 0, because
++// on Android the system runs the message loop once this stack unwinds. Haiku
++// has no such loop, so returning 0 told ContentMain not to call BrowserMain()
++// and the process simply ended: the window was created and shown by
++// Initialize(), then a clean exit(0) with the message loop never entered. That
++// was the browser closing itself about a second after its window appeared, with
++// no error and no teardown -- Shell's destructor never ran either.
++//
++// What Haiku genuinely cannot do is the web-test branch, since web test support
++// is not built here, so that is the only part still excluded.
++#if !defined(OS_ANDROID)
++#if !defined(OS_HAIKU)
+   if (switches::IsRunWebTestsSwitchPresent()) {
+     // Web tests implement their own BrowserMain() replacement.
+     web_test_runner_->RunBrowserMain(main_function_params);
+@@ -239,6 +252,7 @@
+     // return an error.
+     return 0;
+   }
++#endif  // !defined(OS_HAIKU)
+ 
+   // On non-Android, we can return -1 and have the caller run BrowserMain()
+   // normally.

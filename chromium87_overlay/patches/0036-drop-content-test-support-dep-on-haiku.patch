@@ -1,0 +1,17 @@
+diff --git a/chromium/content/shell/BUILD.gn b/chromium/content/shell/BUILD.gn
+--- a/chromium/content/shell/BUILD.gn
++++ b/chromium/content/shell/BUILD.gn
+@@ -262,6 +262,13 @@ static_library("content_shell_lib") {
+       "//components/crash/core/app",
+     ]
+   }
++  if (is_haiku) {
++    # //content/test:test_support pulls in //cc:test_support, whose sources
++    # (cc/test) the pinned qtwebengine-chromium distribution omits. Nothing
++    # left in content_shell_lib references it once the inert Background Sync
++    # controller replaces MockBackgroundSyncController.
++    deps -= [ "//content/test:test_support" ]
++  }
+
+   if (enable_plugins) {
+     sources += [

@@ -1,0 +1,39 @@
+diff --git a/chromium/net/http/http_auth_cache.cc b/chromium/net/http/http_auth_cache.cc
+--- a/chromium/net/http/http_auth_cache.cc
++++ b/chromium/net/http/http_auth_cache.cc
+@@ -166,19 +166,17 @@ HttpAuthCache::Entry* HttpAuthCache::Add(
+   HttpAuthCache::Entry* entry =
+       Lookup(origin, target, realm, scheme, network_isolation_key);
+   if (!entry) {
+-    bool evicted = false;
+     // Failsafe to prevent unbounded memory growth of the cache.
+     //
+     // Data was collected in June of 2019, before entries were keyed on either
+     // HttpAuth::Target or NetworkIsolationKey. That data indicated that the
+     // eviction rate was at around 0.05%. I.e. 0.05% of the time the number of
+     // entries in the cache exceed kMaxNumRealmEntries. The evicted entry is
+     // roughly half an hour old (median), and it's been around 25 minutes since
+     // its last use (median).
+     if (entries_.size() >= kMaxNumRealmEntries) {
+       DLOG(WARNING) << "Num auth cache entries reached limit -- evicting";
+       EvictLeastRecentlyUsedEntry();
+-      evicted = true;
+     }
+     entry = &(entries_
+                   .emplace(std::make_pair(
+@@ -244,15 +244,13 @@ void HttpAuthCache::Entry::AddPath(const std::string& path) {
+     // Remove any entries that have been subsumed by the new entry.
+     base::EraseIf(paths_, IsEnclosedBy(parent_dir));
+
+-    bool evicted = false;
+     // Failsafe to prevent unbounded memory growth of the cache.
+     //
+     // Data collected on June of 2019 indicate that when we get here, the list
+     // of paths has reached the 10 entry maximum around 1% of the time.
+     if (paths_.size() >= kMaxNumPathsPerRealmEntry) {
+       DLOG(WARNING) << "Num path entries for " << origin()
+                     << " has grown too large -- evicting";
+       paths_.pop_back();
+-      evicted = true;
+     }
+

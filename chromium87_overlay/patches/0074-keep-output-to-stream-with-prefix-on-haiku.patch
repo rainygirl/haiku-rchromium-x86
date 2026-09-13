@@ -1,0 +1,25 @@
+--- a/base/debug/stack_trace_posix.cc
++++ b/base/debug/stack_trace_posix.cc
+@@ -853,13 +853,20 @@
+ #endif
+ }
+ 
+-#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
+ void StackTrace::OutputToStreamWithPrefix(std::ostream* os,
+                                           const char* prefix_string) const {
++// Haiku has no backtrace(), so there is nothing to walk here. Keep the
++// function itself, though: stack_trace.h declares it unconditionally and
++// stack_trace.cc calls it from StackTrace::OutputToStream(), operator<< and
++// TaskTrace::OutputToStream(), none of which this platform excludes -- so
++// dropping the whole definition, as the surrounding guard used to, left three
++// undefined references at the final content_shell link. PrintWithPrefix()
++// directly above already has the right shape: keep the symbol, empty the body.
++#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(OS_HAIKU)
+   StreamBacktraceOutputHandler handler(os);
+   ProcessBacktrace(trace_, count_, prefix_string, &handler);
+-}
+ #endif
++}
+ 
+ namespace internal {
+ 

@@ -1,0 +1,59 @@
+--- a/upstream/content_shell/browser/shell_browser_context.cc
++++ b/upstream/content_shell/browser/shell_browser_context.cc
+@@ -27,7 +27,7 @@
+ #include "content/shell/browser/shell_download_manager_delegate.h"
+ #include "content/shell/browser/shell_permission_manager.h"
+ #include "content/shell/common/shell_switches.h"
+-#include "content/test/mock_background_sync_controller.h"
++#include "content/public/browser/background_sync_controller.h"
+ 
+ #if defined(OS_WIN)
+ #include "base/base_paths_win.h"
+@@ -41,6 +41,38 @@
+ 
+ namespace content {
+ 
++namespace {
++
++// The pinned qtwebengine-chromium distribution omits content/test, which is
++// where MockBackgroundSyncController lives. Callers such as BackgroundSyncProxy
++// dereference the controller straight after a DCHECK, so returning null is not
++// an option in a release build. Background Sync is not a goal of this port, so
++// supply an inert controller instead.
++class InertBackgroundSyncController : public BackgroundSyncController {
++ public:
++  InertBackgroundSyncController() = default;
++  ~InertBackgroundSyncController() override = default;
++
++  base::TimeDelta GetNextEventDelay(
++      const BackgroundSyncRegistration& registration,
++      content::BackgroundSyncParameters* parameters,
++      base::TimeDelta time_till_soonest_scheduled_event_for_origin) override {
++    return base::TimeDelta::Max();
++  }
++  std::unique_ptr<BackgroundSyncEventKeepAlive>
++  CreateBackgroundSyncEventKeepAlive() override {
++    return nullptr;
++  }
++  void NoteSuspendedPeriodicSyncOrigins(
++      std::set<url::Origin> suspended_origins) override {}
++  void NoteRegisteredPeriodicSyncOrigins(
++      std::set<url::Origin> registered_origins) override {}
++  void AddToTrackedOrigins(const url::Origin& origin) override {}
++  void RemoveFromTrackedOrigins(const url::Origin& origin) override {}
++};
++
++}  // namespace
++
+ ShellBrowserContext::ShellResourceContext::ShellResourceContext() {}
+ 
+ ShellBrowserContext::ShellResourceContext::~ShellResourceContext() {
+@@ -203,7 +235,7 @@
+ 
+ BackgroundSyncController* ShellBrowserContext::GetBackgroundSyncController() {
+   if (!background_sync_controller_)
+-    background_sync_controller_.reset(new MockBackgroundSyncController());
++    background_sync_controller_.reset(new InertBackgroundSyncController());
+   return background_sync_controller_.get();
+ }
+ 

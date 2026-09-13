@@ -1,0 +1,16 @@
+--- a/chromium/third_party/pffft/src/pffft.c
++++ b/chromium/third_party/pffft/src/pffft.c
+@@ -215,7 +215,12 @@
+ /* detect bugs with the vector support macros */
+ void validate_pffft_simd() {
+   float f[16] = { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 };
+-  v4sf_union a0, a1, a2, a3, t, u; 
++  /* RCHROMIUM_UNUSED: t and u are read only by assertv4(), which
++     compiles away under NDEBUG, so GCC reports them as set but
++     unused in a release build. */
++  v4sf_union a0, a1, a2, a3;
++  v4sf_union t __attribute__((unused));
++  v4sf_union u __attribute__((unused));
+   memcpy(a0.f, f, 4*sizeof(float));
+   memcpy(a1.f, f+4, 4*sizeof(float));
+   memcpy(a2.f, f+8, 4*sizeof(float));

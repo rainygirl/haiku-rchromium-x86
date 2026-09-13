@@ -1,0 +1,8 @@
+diff --git a/chromium/BUILD.gn b/chromium/BUILD.gn
+--- a/chromium/BUILD.gn
++++ b/chromium/BUILD.gn
+@@ -494,3 +494,3 @@ group("gn_all") {
+-  if (!is_chromeos && !is_ios && !is_fuchsia && !use_qt) {
++  if (!is_chromeos && !is_ios && !is_fuchsia && !is_haiku && !use_qt) {
+     deps += [
+       "//base:build_utf8_validator_tables",

@@ -1,0 +1,8 @@
+diff --git a/chromium/tools/binary_size/BUILD.gn b/chromium/tools/binary_size/BUILD.gn
+--- a/chromium/tools/binary_size/BUILD.gn
++++ b/chromium/tools/binary_size/BUILD.gn
+@@ -23,3 +23,3 @@ python_library("sizes_py") {
+-if (is_linux || is_chromeos) {
++if ((is_linux || is_chromeos) && !is_haiku) {
+   group("caspian") {
+     deps = [ "//tools/binary_size/libsupersize/caspian:cli($host_toolchain)" ]

@@ -1,0 +1,18 @@
+diff --git a/chromium/build/toolchain/haiku/BUILD.gn b/chromium/build/toolchain/haiku/BUILD.gn
+--- a/chromium/build/toolchain/haiku/BUILD.gn
++++ b/chromium/build/toolchain/haiku/BUILD.gn
+@@ -6,9 +6,9 @@ import("//build/toolchain/gcc_toolchain.gni")
+ 
+ gcc_toolchain("x86") {
+-  cc = "gcc"
+-  cxx = "g++"
++  cc = "gcc-x86"
++  cxx = "g++-x86"
+ 
+-  readelf = "readelf"
+-  nm = "nm"
+-  ar = "ar"
++  readelf = "readelf-x86"
++  nm = "nm-x86"
++  ar = "ar-x86"
+   ld = cxx

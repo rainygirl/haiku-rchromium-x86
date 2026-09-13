@@ -1,0 +1,47 @@
+#!/bin/sh
+# Run the JRE with a heap small enough to coexist with the build.
+#
+# OpenJDK sizes its default heap from total RAM -- on this 2 GB machine that is
+# about 510 MB, and it refuses to start when the Chromium build already holds
+# most of the memory:
+#
+#   Error occurred during initialization of VM
+#   Could not reserve enough space for 522240KB object heap
+#
+# The only Java in this build is the closure compiler producing
+# mojo_bindings_lite.js, which is a few hundred KB of JavaScript; 192 MB is
+# ample for it and leaves the two cc1plus processes their room.
+#
+# Two things made "just append -Xmx192m" not work:
+#
+# 1. The caller (third_party/closure_compiler/compiler.py) hardcodes
+#    "-Xms1024m" ahead of whatever this wrapper adds, and the JVM takes the
+#    *last* -Xms/-Xmx it sees. Appending -Xmx192m after that -Xms1024m makes
+#    the initial heap bigger than the maximum and the JVM refuses to start:
+#      Error occurred during initialization of VM
+#      Initial heap size set to a larger value than the maximum heap size
+#    So the caller's -Xms*/-Xmx*/-Xss* are stripped rather than out-ordered.
+#
+# 2. JVM options are only recognised *before* "-jar <file>" on the command
+#    line; anything after that point is the target application's own argv.
+#    The caller's line is "-jar -Xms1024m -client ... compiler.jar --js ...",
+#    so appending heap flags at the very end handed them to the closure
+#    compiler as program arguments, which rejected them:
+#      "-Xms32m" is not a valid option
+#    JVM options do not need to sit next to -jar, only somewhere before it, so
+#    this wrapper puts its own first rather than last.
+REAL=/boot/home/config/lib/x86/openjdk11/bin/java
+set -- "$@"
+newargs_started=false
+for a in "$@"; do
+    case "$a" in
+        -Xms*|-Xmx*|-Xss*) continue ;;
+    esac
+    if [ "$newargs_started" = false ]; then
+        set --
+        newargs_started=true
+    fi
+    set -- "$@" "$a"
+done
+[ "$newargs_started" = true ] || set --
+exec "$REAL" -Xms32m -Xmx192m -Xss2m "$@"

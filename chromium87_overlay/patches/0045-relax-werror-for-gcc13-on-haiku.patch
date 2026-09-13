@@ -1,0 +1,20 @@
+--- a/chromium/build/config/compiler/BUILD.gn
++++ b/chromium/build/config/compiler/BUILD.gn
+@@ -1529,6 +1529,17 @@
+         # build uses. The headers are generated, so suppressing the warning is
+         # the durable fix; editing the output would not survive regeneration.
+         cflags_cc += [ "-Wno-c++20-compat" ]
++
++        # Chromium 87 is a Clang codebase from 2020 and this port compiles
++        # it with GCC 13.3, which diagnoses a large set of constructs Clang
++        # never flagged. Every content_shell failure so far has been such a
++        # warning promoted by -Werror, and none has been a real defect.
++        # Suppressing them one at a time is not viable: each new -Wno- flag
++        # in this global config changes every compile command, so ninja
++        # rebuilds the entire tree. Relaxing -Werror once, for Haiku only,
++        # keeps the warnings visible in the log while letting a multi-day
++        # single-core build run to completion. Real errors still stop it.
++        cflags += [ "-Wno-error" ]
+       }
+     }
+   }

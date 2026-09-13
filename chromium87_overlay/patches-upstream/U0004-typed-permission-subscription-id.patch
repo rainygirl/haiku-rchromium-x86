@@ -1,0 +1,80 @@
+QtWebEngine's Chromium tree carries a backported PermissionControllerDelegate
+whose subscription API is typed, while the Content Shell sources vendored here
+still use the untyped int form that was current at the pinned revision:
+
+    ../../content/shell/browser/shell_permission_manager.h:45:7: error:
+    conflicting return type specified for 'virtual int
+    content::ShellPermissionManager::SubscribePermissionStatusChange(...)'
+    note: overridden function is 'virtual
+    content::PermissionControllerDelegate::SubscriptionId
+    content::PermissionControllerDelegate::SubscribePermissionStatusChange(...)'
+
+    ../../content/shell/browser/shell_permission_manager.h:51:8: error:
+    'void content::ShellPermissionManager::UnsubscribePermissionStatusChange(int)'
+    marked 'override', but does not override
+
+    ../../content/shell/browser/shell_browser_context.cc:223:58: error: invalid
+    new-expression of abstract class type 'content::ShellPermissionManager'
+
+Verified against upstream: at the pinned revision (and as late as 89) both
+content/public/browser/permission_controller_delegate.h and
+content/shell/browser/shell_permission_manager.* use plain int, so the vendored
+Shell sources are internally consistent with the revision they came from. The
+tree they are compiled against is not: QtWebEngine's
+permission_controller_delegate.h declares
+`using SubscriptionId = util::IdType64<PermissionControllerDelegate>` and
+returns it, matching what upstream only adopted around 95.
+
+So this is not a vendoring mistake and not a Haiku-specific problem -- it is a
+version skew between the pinned Content Shell sources and QtWebEngine's
+partially-newer content/public. Fixed by moving the Shell implementation
+forward to the typed API, exactly as upstream 95 writes it (SubscriptionId
+return type, `return SubscriptionId();`).
+
+Note the two other `PermissionController::kNoPendingOperation` returns in this
+file, in RequestPermission and RequestPermissions, are deliberately left alone:
+both of those still return plain int in the tree's own
+permission_controller_delegate.h, and upstream 95 likewise leaves them as
+kNoPendingOperation. Only the subscription pair changed type.
+
+--- a/upstream/content_shell/browser/shell_permission_manager.h
++++ b/upstream/content_shell/browser/shell_permission_manager.h
+@@ -42,13 +42,13 @@
+       content::PermissionType permission,
+       content::RenderFrameHost* render_frame_host,
+       const GURL& requesting_origin) override;
+-  int SubscribePermissionStatusChange(
++  SubscriptionId SubscribePermissionStatusChange(
+       PermissionType permission,
+       RenderFrameHost* render_frame_host,
+       const GURL& requesting_origin,
+       base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
+       override;
+-  void UnsubscribePermissionStatusChange(int subscription_id) override;
++  void UnsubscribePermissionStatusChange(SubscriptionId subscription_id) override;
+ 
+  private:
+   DISALLOW_COPY_AND_ASSIGN(ShellPermissionManager);
+--- a/upstream/content_shell/browser/shell_permission_manager.cc
++++ b/upstream/content_shell/browser/shell_permission_manager.cc
+@@ -134,16 +134,17 @@
+           .GetOrigin());
+ }
+ 
+-int ShellPermissionManager::SubscribePermissionStatusChange(
++ShellPermissionManager::SubscriptionId
++ShellPermissionManager::SubscribePermissionStatusChange(
+     PermissionType permission,
+     RenderFrameHost* render_frame_host,
+     const GURL& requesting_origin,
+     base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback) {
+-  return PermissionController::kNoPendingOperation;
++  return SubscriptionId();
+ }
+ 
+ void ShellPermissionManager::UnsubscribePermissionStatusChange(
+-    int subscription_id) {
++    SubscriptionId subscription_id) {
+ }
+ 
+ }  // namespace content

@@ -1,0 +1,101 @@
+QtWebEngine's distribution ships content/public/test/ with only android/ and
+test_service.mojom in it, so three headers the vendored Content Shell utility
+client includes are simply absent:
+
+    ../../content/shell/utility/shell_content_utility_client.h:9:10: fatal
+    error: content/public/test/audio_service_test_helper.h: No such file or
+    directory
+
+(network_service_test_helper.h and test_service.h are missing the same way;
+the compile stops at the first one.) test_service.mojom.h is unaffected --
+it is generated from test_service.mojom, which is present.
+
+Everything these three headers provide is browser-test scaffolding, not
+functionality this port's content_shell needs:
+
+- NetworkServiceTestHelper and AudioServiceTestHelper are constructed only
+  inside `if (is_browsertest && ...)`, and is_browsertest is set only when
+  shell_content_main.cc sees the browser-test switch.
+- TestService is instantiated only for the kTestServiceUrl service name.
+
+So this follows U0001's precedent of compiling out test-only Shell hooks on
+this port rather than vendoring the missing sources: guard the includes, the
+two member pointers, their construction, the TestService branch, and the one
+RegisterNetworkBinders call that dereferences the network helper, all behind
+!defined(OS_HAIKU).
+
+Vendoring the three headers instead was considered and rejected: their
+implementations pull in more of content/public/test (and its GN targets),
+which the distribution also drops, to support a mode this build never runs.
+
+--- a/upstream/content_shell/utility/shell_content_utility_client.h
++++ b/upstream/content_shell/utility/shell_content_utility_client.h
+@@ -6,8 +6,11 @@
+ #define CONTENT_SHELL_UTILITY_SHELL_CONTENT_UTILITY_CLIENT_H_
+ 
+ #include "base/macros.h"
++#include "build/build_config.h"
++#if !defined(OS_HAIKU)
+ #include "content/public/test/audio_service_test_helper.h"
+ #include "content/public/test/network_service_test_helper.h"
++#endif
+ #include "content/public/utility/content_utility_client.h"
+ #include "mojo/public/cpp/bindings/pending_receiver.h"
+ 
+@@ -28,8 +31,10 @@
+       service_manager::BinderRegistry* registry) override;
+ 
+  private:
++#if !defined(OS_HAIKU)
+   std::unique_ptr<NetworkServiceTestHelper> network_service_test_helper_;
+   std::unique_ptr<AudioServiceTestHelper> audio_service_test_helper_;
++#endif
+   bool register_sandbox_status_helper_ = false;
+ 
+   DISALLOW_COPY_AND_ASSIGN(ShellContentUtilityClient);
+--- a/upstream/content_shell/utility/shell_content_utility_client.cc
++++ b/upstream/content_shell/utility/shell_content_utility_client.cc
+@@ -22,7 +22,9 @@
+ #include "components/services/storage/test_api/test_api.h"
+ #include "content/public/child/child_thread.h"
+ #include "content/public/common/content_switches.h"
++#if !defined(OS_HAIKU)
+ #include "content/public/test/test_service.h"
++#endif
+ #include "content/public/test/test_service.mojom.h"
+ #include "content/public/utility/utility_thread.h"
+ #include "content/shell/common/power_monitor_test_impl.h"
+@@ -127,8 +129,10 @@
+   if (is_browsertest &&
+       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+           switches::kProcessType) == switches::kUtilityProcess) {
++#if !defined(OS_HAIKU)
+     network_service_test_helper_ = std::make_unique<NetworkServiceTestHelper>();
+     audio_service_test_helper_ = std::make_unique<AudioServiceTestHelper>();
++#endif
+     storage::InjectTestApiImplementation();
+     register_sandbox_status_helper_ = true;
+   }
+@@ -157,9 +161,11 @@
+     const std::string& service_name,
+     mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
+   std::unique_ptr<service_manager::Service> service;
++#if !defined(OS_HAIKU)
+   if (service_name == kTestServiceUrl) {
+     service = std::make_unique<TestService>(std::move(receiver));
+   }
++#endif
+ 
+   if (service) {
+     service_manager::Service::RunAsyncUntilTermination(
+@@ -181,8 +187,10 @@
+ 
+ void ShellContentUtilityClient::RegisterNetworkBinders(
+     service_manager::BinderRegistry* registry) {
++#if !defined(OS_HAIKU)
+   if (network_service_test_helper_)
+     network_service_test_helper_->RegisterNetworkBinders(registry);
++#endif
+ }
+ 
+ }  // namespace content

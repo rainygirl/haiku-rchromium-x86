@@ -1,0 +1,8 @@
+# Build outputs and artifacts, kept on disk but out of git.
+preserved/
+build/
+out/
+*.o
+*.a
+__pycache__/
+*.pyc

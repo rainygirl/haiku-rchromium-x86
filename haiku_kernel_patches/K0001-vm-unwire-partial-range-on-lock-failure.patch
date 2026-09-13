@@ -1,0 +1,86 @@
+Haiku kernel: fix "VMArea::Unwire(...): no such range" panic when
+lock_memory_etc() fails part-way through an area.
+
+This panic killed the content_shell link twice on 2026-09-01/02, both times in
+thread "ld" while writing the ~190 MB output file, and it is what made the
+final link unreachable on this machine:
+
+    PANIC: VMArea::Unwire(0x5e1f8000, 0x2000, 0): no such range
+    Thread 2070 "ld" running on CPU 0
+      ...
+      VMArea<...>::Unwire(uint32: 0x5e1f8000, uint32: 0x2000 (8192), false)
+      unlock_memory_etc + 0x3e1
+      lock_memory_etc + 0x692
+      IOBuffer<...>::LockMemory(int32: 2070, true)
+      IOSchedulerSimple<...>::ScheduleRequest(...)
+      ...
+      bfs_write / file_write / common_user_io(..., 0x28000 (163840), true)
+
+Mechanism, from lock_memory_etc() in src/system/kernel/vm/vm.cpp:
+
+1. For each area the request spans, it allocates a wired range covering that
+   area's whole portion:
+
+       VMAreaWiredRange(areaStart, areaEnd - areaStart, writable, true)
+
+   and registers it with area->Wire(range) *before* touching any page.
+
+2. It then walks the pages one at a time, either bumping an already-mapped
+   page's wired count or calling vm_soft_fault() to map it. Under memory
+   pressure vm_soft_fault() can fail, and the loop breaks at nextAddress,
+   somewhere strictly inside the area's portion.
+
+3. The cleanup only fully unwires the range when nextAddress == areaStart.
+   Otherwise it leaves the range registered at its original size and falls
+   through to:
+
+       unlock_memory_etc(team, (void*)lockBaseAddress,
+           nextAddress - lockBaseAddress, flags);
+
+4. unlock_memory_etc() reverts exactly [lockBaseAddress, nextAddress) and so
+   calls area->Unwire(areaStart, nextAddress - areaStart, writable). The
+   registered range still has size (areaEnd - areaStart). VMArea::Unwire()
+   matches on (base, size, writable) exactly, finds nothing, and panics.
+
+The panic arguments match this exactly. The write was 0x28000 (163840 bytes,
+40 pages), so lock_memory_etc() wired a 40-page range; it failed after 2 pages,
+and unlock_memory_etc() then asked to unwire 0x2000 (8192 bytes, 2 pages) --
+"no such range".
+
+Fix: in that error path, shrink the registered range to the part that was
+actually wired before releasing the cache lock. The pages in
+[areaStart, nextAddress) are precisely the ones whose wired count was
+incremented, so the shrunk range describes the true state; unlock_memory_etc()
+then finds it and unwinds correctly.
+
+Shrinking is safe for the range's other consumers: apart from the exact-match
+lookup in VMArea::Unwire(base, size, writable), size is only read through
+VMAreaWiredRange::IntersectsWith() (VMArea::IsWired and the AddWaiterIfWired
+pair), where a range that no longer claims pages it never wired is strictly
+more accurate.
+
+Not reported upstream (this project has no upstream access); recorded here.
+
+--- a/src/system/kernel/vm/vm.cpp
++++ b/src/system/kernel/vm/vm.cpp
+@@ -5194,8 +5194,19 @@
+ 				cacheChainLocker.Unlock();
+ 				range->~VMAreaWiredRange();
+ 				free_etc(range, mallocFlags);
+-			} else
++			} else {
++				// We wired the range covering the whole of this area's portion
++				// of the request, but only got as far as nextAddress before
++				// failing. The unlock_memory_etc() call below reverts exactly
++				// [lockBaseAddress, nextAddress), so it looks for a range of
++				// size (nextAddress - areaStart); leaving the recorded size at
++				// (areaEnd - areaStart) makes that lookup find nothing and
++				// panic with "no such range". Shrink it to what is actually
++				// wired -- the pages in [areaStart, nextAddress) are the only
++				// ones whose wired count we incremented.
++				range->size = nextAddress - areaStart;
+ 				cacheChainLocker.Unlock();
++			}
+ 
+ 			break;
+ 		}

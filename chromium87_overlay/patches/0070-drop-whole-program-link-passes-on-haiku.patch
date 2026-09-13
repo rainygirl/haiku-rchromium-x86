@@ -1,0 +1,67 @@
+With every symbol error resolved, the content_shell link still fails -- but now
+purely on memory:
+
+    collect2: fatal error: ld terminated with signal 21 [Kill Thread]
+
+ld had written 141,614,983 bytes of the ~190 MB binary when the kernel killed
+it. This is a clean out-of-memory kill, not the VMArea::Unwire panic that the
+kernel patch (haiku_kernel_patches/K0001) fixed; that panic no longer happens
+and the link now runs to the end of its memory budget instead of taking the
+machine down.
+
+RCHROMIUM_LINK_LOWMEM=1 was already in effect, so --no-keep-memory and
+--reduce-memory-overheads were on. The remaining levers were the two flags
+AGENTS.md flagged as costly for exactly this reason: both make ld build a
+whole-program view before it can write anything -- --gc-sections a
+reachability graph over every section, -O2 a string tail-merge pass.
+
+Freeing memory elsewhere was tried first and did not help: another session had
+an app running on this machine, and stopping it recovered 1.4 MB. The shortfall
+is ld's own working set, not competition for the box.
+
+The cost is a larger binary. -ffunction-sections and -fdata-sections stay on
+above, so the code is still split into per-symbol sections; nothing collects
+the unused ones any more. That is an acceptable trade for a bootstrap: a bigger
+binary that exists beats a smaller one that cannot be linked. Revisit if a
+linker with a lower peak (lld) ever becomes available for this target -- neither
+gold nor lld is present in this toolchain today.
+
+Changing ldflags does not invalidate any object, so this costs one relink, not
+a rebuild.
+
+--- a/chromium/build/config/compiler/BUILD.gn
++++ b/chromium/build/config/compiler/BUILD.gn
+@@ -2033,13 +2033,26 @@
+       "-ffunction-sections",
+     ]
+ 
+-    common_optimize_on_ldflags += [
+-      # Specifically tell the linker to perform optimizations.
+-      # See http://lwn.net/Articles/192624/ .
+-      # -O2 enables string tail merge optimization in gold and lld.
+-      "-Wl,-O2",
+-      "-Wl,--gc-sections",
+-    ]
++    if (is_haiku) {
++      # Both of these make ld build a whole-program view before it can write
++      # anything: --gc-sections a reachability graph over every section, -O2 a
++      # string tail-merge pass. On the 2 GB VAIO that is what pushes the
++      # ~190 MB content_shell link past what the kernel will give it -- ld got
++      # as far as 141 MB and was killed ("ld terminated with signal 21
++      # [Kill Thread]") with --no-keep-memory and --reduce-memory-overheads
++      # already in effect. The cost is a larger binary, since the
++      # -ffunction-sections/-fdata-sections above still split everything out
++      # but nothing collects the unused parts afterwards. A bigger binary that
++      # exists beats a smaller one that cannot be linked.
++    } else {
++      common_optimize_on_ldflags += [
++        # Specifically tell the linker to perform optimizations.
++        # See http://lwn.net/Articles/192624/ .
++        # -O2 enables string tail merge optimization in gold and lld.
++        "-Wl,-O2",
++        "-Wl,--gc-sections",
++      ]
++    }
+   }
+ }
+ 

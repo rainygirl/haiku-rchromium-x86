@@ -1,0 +1,18 @@
+--- a/chromium/build/config/compiler/BUILD.gn
++++ b/chromium/build/config/compiler/BUILD.gn
+@@ -1514,6 +1514,15 @@
+       if (!is_haiku) {
+         cflags_cc += [ "-Wno-deprecated-copy" ]
+       }
++
++      if (is_haiku) {
++        # Haiku declares struct in6_addr _PACKED even though its union member
++        # is a uint32_t array, so any code that reads an IPv6 address through
++        # a wider type trips -Waddress-of-packed-member. The alignment is
++        # actually fine; the attribute is what misleads GCC. Clang builds of
++        # Chromium disable the same warning.
++        cflags += [ "-Wno-address-of-packed-member" ]
++      }
+     }
+   }
+ 

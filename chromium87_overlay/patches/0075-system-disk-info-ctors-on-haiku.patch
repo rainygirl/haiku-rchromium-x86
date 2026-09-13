@@ -1,0 +1,21 @@
+--- a/base/process/process_metrics_haiku.cc
++++ b/base/process/process_metrics_haiku.cc
+@@ -42,5 +42,18 @@
+   return 0;
+ }
+ 
++// process_metrics.h declares SystemDiskInfo for OS_HAIKU and gives SystemMetrics
++// a SystemDiskInfo member on this platform, but the definitions live in
++// process_metrics_linux.cc, which base/BUILD.gn removes here. That leaves
++// SystemMetrics::SystemMetrics() and SystemMetrics::Sample() -- neither of them
++// excluded -- with an undefined constructor at the final link.
++//
++// Haiku exposes no /proc/diskstats equivalent, so every field keeps the zero it
++// is given in the class declaration. The struct then reports "no I/O observed"
++// rather than invented numbers, which is the truthful answer here; nothing on
++// this platform reads it, because process_metrics.cc guards both the
++// GetSystemDiskInfo() call and the ToValue() serialisation on OS_LINUX.
++SystemDiskInfo::SystemDiskInfo() = default;
++SystemDiskInfo::SystemDiskInfo(const SystemDiskInfo& other) = default;
+ 
+ }  // namespace base
