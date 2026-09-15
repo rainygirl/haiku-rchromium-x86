@@ -61,6 +61,11 @@ gfx::AcceleratedWidget HaikuWindowManager::SoleWidget() const {
   return windows_.begin()->first;
 }
 
+size_t HaikuWindowManager::WindowCount() const {
+  base::AutoLock guard(lock_);
+  return windows_.size();
+}
+
 void HaikuWindowManager::SetWindowBounds(gfx::AcceleratedWidget widget,
                                          const gfx::Rect& bounds) {
   base::AutoLock lock(lock_);

@@ -57,6 +57,8 @@ HaikuWindow::HaikuWindow(PlatformWindowDelegate* delegate,
       base::BindRepeating(&HaikuWindow::OnEventFromLooper,
                           weak_factory_.GetWeakPtr()),
       base::BindRepeating(&HaikuWindow::OnBoundsFromLooper,
+                          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&HaikuWindow::OnCloseFromLooper,
                           weak_factory_.GetWeakPtr()));
 
   fprintf(stderr, "[RCH] HaikuWindow ctor bounds=%dx%d\n",
@@ -96,6 +98,15 @@ void HaikuWindow::OnBoundsFromLooper(const gfx::Rect& bounds) {
   delegate()->OnBoundsChanged(bounds_);
 }
 
+void HaikuWindow::OnCloseFromLooper() {
+  fprintf(stderr, "[RCH] OnCloseFromLooper widget=%lu\n",
+          (unsigned long)widget_);
+  // WindowTreeHostPlatform turns this into OnHostCloseRequested(), which the
+  // content_shell platform delegate answers by closing the Shell. Nothing is
+  // hidden or destroyed here: that happens in ~HaikuWindow when the host goes.
+  delegate()->OnCloseRequest();
+}
+
 void HaikuWindow::Show(bool inactive) {
   fprintf(stderr, "[RCH] HaikuWindow::Show inactive=%d window=%p visible=%d\n",
           (int)inactive, (void*)window_, (int)visible_);
@@ -112,6 +123,18 @@ void HaikuWindow::Show(bool inactive) {
   // does not fight later SetBounds() calls.
   if (window_->Lock()) {
     window_->MoveOnScreen(B_MOVE_IF_PARTIALLY_OFFSCREEN);
+
+    // Every window is asked for at the same origin, so after MoveOnScreen a
+    // second one would sit exactly over the first and a link that opened a
+    // new window would look like it had done nothing. Cascade each new window
+    // down and right of the ones already open; MoveOnScreen again in case that
+    // pushed it past the bottom or right edge.
+    const size_t others = manager_->WindowCount() - 1;
+    if (others > 0) {
+      constexpr float kCascadeStep = 32.0f;
+      window_->MoveBy(kCascadeStep * others, kCascadeStep * others);
+      window_->MoveOnScreen(B_MOVE_IF_PARTIALLY_OFFSCREEN);
+    }
     window_->Unlock();
   }
 

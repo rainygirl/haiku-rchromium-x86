@@ -30,13 +30,16 @@ class HaikuWindowManager;
 // PlatformWindowDelegate directly. Input is translated on the looper thread
 // and handed to the UI thread through `ui_task_runner_`.
 // Defined in haiku_beapi_views.cc, which is compiled with RTTI. Returns a
-// BWindow subclass whose QuitRequested() hides rather than quits.
+// BWindow subclass whose QuitRequested() asks the Shell to close (through
+// HaikuContentView::RequestClose) instead of quitting the BWindow itself,
+// which ozone owns and tears down in ~HaikuWindow.
 BWindow* CreateBrowserNativeWindow(BRect frame);
 
 class HaikuContentView : public BView {
  public:
   using EventSink = base::RepeatingCallback<void(std::unique_ptr<Event>)>;
   using BoundsSink = base::RepeatingCallback<void(const gfx::Rect&)>;
+  using CloseSink = base::RepeatingClosure;
 
   HaikuContentView();
   ~HaikuContentView() override;
@@ -46,9 +49,14 @@ class HaikuContentView : public BView {
   // which is what makes the unsynchronised reads below safe.
   void SetSinks(scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
                 EventSink event_sink,
-                BoundsSink bounds_sink);
+                BoundsSink bounds_sink,
+                CloseSink close_sink);
 
   void Present(const void* pixels, int width, int height, size_t row_bytes);
+
+  // The window's close button was pressed. Called on the looper thread; hands
+  // the request to the UI thread. Returns false if no sink is wired up yet.
+  bool RequestClose();
 
   // Height in pixels reserved at the top of the window for native chrome that
   // is not part of the web content. Purely geometric: this view knows nothing
@@ -84,6 +92,7 @@ class HaikuContentView : public BView {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
   EventSink event_sink_;
   BoundsSink bounds_sink_;
+  CloseSink close_sink_;
 };
 
 class HaikuWindow : public StubWindow {
@@ -132,6 +141,7 @@ class HaikuWindow : public StubWindow {
   // down are dropped instead of landing on a freed delegate.
   void OnEventFromLooper(std::unique_ptr<Event> event);
   void OnBoundsFromLooper(const gfx::Rect& bounds);
+  void OnCloseFromLooper();
 
   HaikuWindowManager* manager_;
   gfx::AcceleratedWidget widget_ = gfx::kNullAcceleratedWidget;

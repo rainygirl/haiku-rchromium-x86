@@ -72,6 +72,10 @@ From a shell:
   `~/config/settings/RChromium/bookmarks`, one `<unix seconds> <url> <title>`
   line per bookmark (tab-separated), so they survive reinstalls and can be
   edited or backed up by hand.
+- **Windows**: drag the resize corner and the page re-lays out to the new
+  size. A link that opens a new window gets its own R Chromium window, offset
+  from the current one. Closing a window closes that page; closing the last
+  window quits R Chromium.
 
 ## Known limits
 

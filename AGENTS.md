@@ -74,7 +74,10 @@ Haiku Ozone backend (no Qt) with a BeAPI toolbar. Verified on the VAIO P
 with JavaScript, including via address-bar re-navigation; icon-only
 Back/Forward/Reload; address field (bare hosts default to https://);
 date-grouped, searchable bookmarks; Desktop launcher with the blue Chromium
-icon; `readelf -d` lists libbe and friends, no libQt5*. Details, root causes
+icon; `readelf -d` lists libbe and friends, no libQt5*. 2026-09-15: window
+resize relayouts the page, links that open a new window get their own BWindow
+(one WindowTreeHost per Shell; viz gets the real widget via patch 0089), and
+closing a window closes its Shell. Details, root causes
 and every fix are in `docs/browser-ui-plan.md`. Known limits: web storage is
 session-only (off-the-record, by design -- see the docs), and Google News
 takes 6-8 s on the Atom (renderer CPU-bound; naver loads in 1.5-2.5 s).

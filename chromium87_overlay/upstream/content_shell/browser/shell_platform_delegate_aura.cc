@@ -29,6 +29,11 @@
 #include "base/time/time.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "haiku_port/ozone/haiku_browser_chrome.h"
+#include "ui/aura/screen_ozone.h"
+#include "ui/aura/window_tree_host.h"
+#include "ui/aura/window_tree_host_observer.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/display/screen.h"
 #include "url/gurl.h"
 #endif
 
@@ -169,12 +174,56 @@ class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
 };
 
+// Closes the Shell when its BWindow's close button is pressed.
+//
+// The path is BrowserNativeWindow::QuitRequested() -> HaikuContentView ->
+// HaikuWindow::OnCloseFromLooper() -> PlatformWindowDelegate::OnCloseRequest()
+// -> WindowTreeHost::OnHostCloseRequested() -> here. Before this existed the
+// BWindow simply hid itself and the Shell lived on, invisible, until the
+// process was killed; with one window per Shell that would also leak a whole
+// WebContents per closed window.
+class ShellHostCloseObserver : public aura::WindowTreeHostObserver {
+ public:
+  ShellHostCloseObserver(Shell* shell, aura::WindowTreeHost* host)
+      : shell_(shell), host_(host) {
+    host_->AddObserver(this);
+  }
+  ~ShellHostCloseObserver() override { host_->RemoveObserver(this); }
+
+  ShellHostCloseObserver(const ShellHostCloseObserver&) = delete;
+  ShellHostCloseObserver& operator=(const ShellHostCloseObserver&) = delete;
+
+  void OnHostCloseRequested(aura::WindowTreeHost* host) override {
+    // Not synchronously: Shell::Close() deletes the Shell, and with it this
+    // observer and the host that is iterating its observer list right now.
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&ShellHostCloseObserver::CloseShell, shell_));
+  }
+
+ private:
+  static void CloseShell(Shell* shell) {
+    // The Shell may already be gone (a second click on the close button
+    // before the first task ran), so check it is still registered.
+    if (base::Contains(Shell::windows(), shell))
+      shell->Close();
+  }
+
+  Shell* shell_;
+  aura::WindowTreeHost* host_;
+};
+
 }  // namespace
 #endif  // defined(OS_HAIKU)
 
 struct ShellPlatformDelegate::ShellData {
   gfx::NativeWindow window;
 #if defined(OS_HAIKU)
+  // This Shell's own WindowTreeHost and BWindow. Declared before
+  // close_observer so the observer unregisters from the host before the host
+  // is destroyed.
+  std::unique_ptr<ShellPlatformDataAura> aura;
+  std::unique_ptr<ShellHostCloseObserver> close_observer;
   HaikuChromeClient* chrome = nullptr;
   gfx::AcceleratedWidget widget = gfx::kNullAcceleratedWidget;
   bool can_go_back = false;
@@ -184,6 +233,18 @@ struct ShellPlatformDelegate::ShellData {
 };
 
 struct ShellPlatformDelegate::PlatformData {
+#if defined(OS_HAIKU)
+  // The process-wide display::Screen. ShellPlatformDataAura creates one only
+  // if none exists yet, and with one ShellPlatformDataAura per Shell that
+  // made the *first Shell* own the singleton: closing that window destroyed
+  // the Screen while other WebContents were alive, or -- for the last window
+  // -- before its own WebContents was destroyed, and
+  // ~RenderWidgetHostViewAura took SEGV on the null Screen (the exact hazard
+  // the comment in Shell::~Shell warns about). Owned here instead, declared
+  // before `aura` so it is destroyed after it, and PlatformData itself dies
+  // only after the last WebContents has gone.
+  std::unique_ptr<display::Screen> screen;
+#endif
   std::unique_ptr<ShellPlatformDataAura> aura;
 };
 
@@ -196,6 +257,10 @@ ShellPlatformDataAura* ShellPlatformDelegate::GetShellPlatformDataAura() {
 
 void ShellPlatformDelegate::Initialize(const gfx::Size& default_window_size) {
   platform_ = std::make_unique<PlatformData>();
+#if defined(OS_HAIKU)
+  if (features::IsUsingOzonePlatform() && !display::Screen::GetScreen())
+    platform_->screen = std::make_unique<aura::ScreenOzone>();
+#endif
   platform_->aura =
       std::make_unique<ShellPlatformDataAura>(default_window_size);
 }
@@ -206,7 +271,33 @@ void ShellPlatformDelegate::CreatePlatformWindow(
   DCHECK(!base::Contains(shell_data_map_, shell));
   ShellData& shell_data = shell_data_map_[shell];
 
-  platform_->aura->ResizeWindow(initial_size);
+#if defined(OS_HAIKU)
+  // One host -- one BWindow -- per Shell.
+  //
+  // Upstream shares the single host Initialize() created among every Shell,
+  // because this delegate is the web-test configuration: the host is an
+  // offscreen surface and a second Shell is a popup no one looks at. Here the
+  // host is the browser window. With the shared host, a link that opened a
+  // new window landed in the *same* BWindow: ResizeWindow() below moved it
+  // back to the screen origin, which on Haiku puts the title tab above the
+  // top edge of the screen (the frame is the content area; see
+  // HaikuWindow::Show), and the new WebContents was stacked over the old one
+  // in the same root. The window looked like it had lost its title bar.
+  //
+  // The first Shell adopts the host Initialize() made rather than discarding
+  // it; every later Shell gets a fresh one at its requested size.
+  if (platform_->aura)
+    shell_data.aura = std::move(platform_->aura);
+  else
+    shell_data.aura = std::make_unique<ShellPlatformDataAura>(initial_size);
+  ShellPlatformDataAura* aura = shell_data.aura.get();
+  shell_data.close_observer =
+      std::make_unique<ShellHostCloseObserver>(shell, aura->host());
+#else
+  ShellPlatformDataAura* aura = platform_->aura.get();
+#endif
+
+  aura->ResizeWindow(initial_size);
 
   // Put the host on screen. ShellPlatformDataAura::ShowWindow() exists for
   // exactly this and nothing upstream calls it from here, because this
@@ -229,7 +320,7 @@ void ShellPlatformDelegate::CreatePlatformWindow(
   // BWindow and one resize path, so when painting stops the first question is
   // which half broke it -- and answering that with an env switch costs a run
   // rather than a rebuild and a link, which on this machine is half an hour.
-  shell_data.widget = platform_->aura->host()->GetAcceleratedWidget();
+  shell_data.widget = aura->host()->GetAcceleratedWidget();
   if (getenv("RCH_NO_TOOLBAR") == nullptr) {
     shell_data.chrome = new HaikuChromeClient(shell);
     shell_data.chrome->ScheduleTestNavigations();
@@ -242,9 +333,9 @@ void ShellPlatformDelegate::CreatePlatformWindow(
   }
 #endif
 
-  platform_->aura->ShowWindow();
+  aura->ShowWindow();
 
-  shell_data.window = platform_->aura->host()->window();
+  shell_data.window = aura->host()->window();
 }
 
 gfx::NativeWindow ShellPlatformDelegate::GetNativeWindow(Shell* shell) {
@@ -261,13 +352,26 @@ void ShellPlatformDelegate::CleanUp(Shell* shell) {
   ShellData& shell_data = shell_data_map_[shell];
   if (shell_data.chrome != nullptr)
     shell_data.chrome->Detach();
+
+  // Take the WebContents' window out of this Shell's root before the root --
+  // and the BWindow behind it -- is destroyed with shell_data below. The
+  // WebContents itself is still alive here (Shell::~Shell resets it after
+  // CleanUp) and is what owns that window; this is the same detach a views
+  // NativeViewHost does when its Widget closes.
+  aura::Window* content = shell->web_contents()->GetNativeView();
+  if (content != nullptr && content->parent() != nullptr)
+    content->parent()->RemoveChild(content);
 #endif
   shell_data_map_.erase(shell);
 }
 
 void ShellPlatformDelegate::SetContents(Shell* shell) {
   aura::Window* content = shell->web_contents()->GetNativeView();
+#if defined(OS_HAIKU)
+  aura::Window* parent = shell_data_map_[shell].aura->host()->window();
+#else
   aura::Window* parent = platform_->aura->host()->window();
+#endif
   if (!parent->Contains(content))
     parent->AddChild(content);
 

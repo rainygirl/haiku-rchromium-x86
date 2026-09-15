@@ -43,6 +43,8 @@ class HaikuWindowManager {
   // window per process. It is wrong the moment a second window exists, which is
   // why this returns null rather than guessing in that case.
   gfx::AcceleratedWidget SoleWidget() const;
+  // How many windows are registered right now.
+  size_t WindowCount() const;
 
   // OzonePlatformHaiku creates exactly one of these and registers it here, so
   // that code outside ozone can reach a window by widget without being handed

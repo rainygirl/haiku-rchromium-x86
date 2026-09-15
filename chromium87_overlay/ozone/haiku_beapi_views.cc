@@ -71,6 +71,14 @@ class BrowserNativeWindow : public BWindow {
 
   bool QuitRequested() override {
     fprintf(stderr, "[RCH] BrowserNativeWindow::QuitRequested\n");
+    // Never let BWindow quit itself: ozone owns this window and deletes it in
+    // ~HaikuWindow once the Shell is gone. Ask the Shell to close instead; the
+    // canvas view carries the only route to the UI thread. If it is not wired
+    // up yet (a window closed before its first frame), fall back to hiding.
+    BView* canvas = FindView("Chromium canvas");
+    if (canvas != nullptr &&
+        static_cast<HaikuContentView*>(canvas)->RequestClose())
+      return false;
     Hide();
     return false;
   }
@@ -125,10 +133,19 @@ HaikuContentView::~HaikuContentView() = default;
 void HaikuContentView::SetSinks(
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
     EventSink event_sink,
-    BoundsSink bounds_sink) {
+    BoundsSink bounds_sink,
+    CloseSink close_sink) {
   ui_task_runner_ = std::move(ui_task_runner);
   event_sink_ = std::move(event_sink);
   bounds_sink_ = std::move(bounds_sink);
+  close_sink_ = std::move(close_sink);
+}
+
+bool HaikuContentView::RequestClose() {
+  if (!ui_task_runner_ || close_sink_.is_null())
+    return false;
+  ui_task_runner_->PostTask(FROM_HERE, close_sink_);
+  return true;
 }
 
 void HaikuContentView::Draw(BRect update_rect) {

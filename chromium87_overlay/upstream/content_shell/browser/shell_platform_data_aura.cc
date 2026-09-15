@@ -139,6 +139,17 @@ class FillLayout : public aura::LayoutManager {
  private:
   // aura::LayoutManager:
   void OnWindowResized() override {
+#if defined(OS_HAIKU)
+    // Upstream lays the children out once, because in the configuration this
+    // file serves the host is an offscreen surface that nobody resizes. On
+    // Haiku the host is a BWindow with a resize corner, and each drag of it
+    // arrives here as a root bounds change (HaikuContentView::FrameResized ->
+    // PlatformWindowDelegate::OnBoundsChanged). The WebContents window has to
+    // follow every time, or the page keeps its launch size inside a window
+    // that is now bigger or smaller -- which is exactly what it did.
+    for (aura::Window* child : root_->children())
+      SetChildBoundsDirect(child, gfx::Rect(root_->bounds().size()));
+#else
     // If window bounds were not set previously then resize all children to
     // match the size of the parent.
     if (!has_bounds_) {
@@ -146,6 +157,7 @@ class FillLayout : public aura::LayoutManager {
       for (aura::Window* child : root_->children())
         SetChildBoundsDirect(child, gfx::Rect(root_->bounds().size()));
     }
+#endif
   }
 
   void OnWindowAddedToLayout(aura::Window* child) override {

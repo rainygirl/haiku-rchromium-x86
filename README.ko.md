@@ -72,6 +72,10 @@ sh install.sh /path/to/dir/with/content_shell
   일반 텍스트 파일 `~/config/settings/RChromium/bookmarks`에 북마크당 한 줄
   `<unix 초> <url> <제목>` 형식(탭 구분)으로 저장되므로 재설치 후에도
   남고, 직접 편집하거나 백업할 수 있습니다.
+- **창**: 창 모서리를 끌어 크기를 바꾸면 페이지가 새 크기에 맞게 다시
+  배치됩니다. 새 창을 여는 링크는 현재 창에서 비켜난 별도의 R Chromium
+  창으로 열립니다. 창을 닫으면 그 페이지가 닫히고, 마지막 창을 닫으면
+  R Chromium이 종료됩니다.
 
 ## 알려진 제한
 

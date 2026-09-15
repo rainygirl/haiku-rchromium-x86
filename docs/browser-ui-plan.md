@@ -305,6 +305,8 @@ the widget this port handed out (`CreateCanvasForWidget widget=0` against
 `publishing widget=1`). `HaikuWindowManager::SoleWidget()` resolves a null
 widget to the only registered window, which is correct for content_shell and
 wrong the moment a second window exists -- it returns null rather than guess.
+(Resolved 2026-09-15 by patch 0089, see "Resize and second windows" below: the
+widget was dropped in the browser process, not in viz.)
 
 The real fix is to make the ozone widget a handle that means something in
 another process. An index into a browser-process map cannot: the BView lives in
@@ -1002,3 +1004,90 @@ instead of dereferencing. `<ul>` pages and ko.wikipedia.org now render with no
 crash (verified on screen). Deeper root (why the marker's PrimaryFont is null
 on Haiku while body text of the same style resolves) is left as a cosmetic
 follow-up; the crash is gone and lists lay out.
+
+## Resize and second windows (2026-09-15)
+
+Two reports from use on the VAIO: dragging the window's resize corner changed
+the BWindow but the page kept its 800x600 layout, and following a link that
+opens a new window made "the title bar disappear". Three defects, all in the
+browser-process configuration content_shell gives Haiku (aura, no views):
+
+1. **Resize never reached the WebContents.** The ozone side was complete
+   (`HaikuContentView::FrameResized` -> `OnBoundsFromLooper` ->
+   `PlatformWindowDelegate::OnBoundsChanged`, and the compositor did get a
+   `ResizeCanvas`), but `FillLayout` in `shell_platform_data_aura.cc` lays
+   children out exactly once (`has_bounds_`), because upstream's aura delegate
+   is the web-test configuration whose host nobody resizes. The WebContents'
+   aura::Window therefore stayed 800x600 inside a root of the new size. On
+   Haiku the layout now follows every root resize.
+
+2. **All Shells shared one host.** `ShellPlatformDelegate` kept a single
+   `ShellPlatformDataAura` (one WindowTreeHost, one BWindow) for the process,
+   again the web-test design. `Shell::AddNewContents` -> `CreateShell` ->
+   `CreatePlatformWindow` then called `ResizeWindow(initial_size)` on that same
+   host, which is `SetBoundsInPixels(gfx::Rect(size))`: origin (0,0). On Haiku
+   a BWindow frame is its content area, so (0,0) puts the title tab above the
+   top of the screen -- `HaikuWindow::Show` runs `MoveOnScreen` once, at first
+   show, and this later move undid it. The second WebContents was also added
+   to the same root, on top of the first. Now each Shell owns its own
+   `ShellPlatformDataAura` (the first adopts the one `Initialize()` made); the
+   new window comes up as a separate BWindow with its own toolbar.
+
+3. **viz never knew which window a compositor drew into.** With two windows
+   that fix alone would have blanked both: `SoleWidget()` returns null for
+   `windows_.size() != 1`. The null widget was not viz's doing -- it is
+   dropped in `viz_process_transport_factory.cc`, where
+   `root_params->widget = compositor->widget()` sits under
+   `GPU_SURFACE_HANDLE_IS_ACCELERATED_WINDOW`, and `surface_handle.h` excludes
+   `OS_HAIKU` from that macro. Both `gpu::SurfaceHandle` and
+   `gfx::AcceleratedWidget` are `int32_t` on Haiku, so patch 0089 simply lets
+   the assignment run on Haiku too. `CreateCanvasForWidget` now receives the
+   real widget and `PresentCanvas` finds the right view. The `SoleWidget()`
+   fallback stays for the null case.
+
+Closing a window: `BrowserNativeWindow::QuitRequested()` used to `Hide()` and
+leave the Shell alive; with one WebContents per window that is a leak per
+close. It now asks the Shell to close: view `RequestClose()` -> UI thread ->
+`HaikuWindow::OnCloseFromLooper` -> `OnCloseRequest()` ->
+`WindowTreeHost::OnHostCloseRequested` -> `ShellHostCloseObserver` (posted,
+not synchronous, since `Shell::Close` destroys the host that is iterating its
+observers) -> `Shell::Close()`. Closing the last window quits the process, as
+in any browser. `CleanUp` detaches the WebContents' aura window from the root
+before the host is destroyed, the same detach a views NativeViewHost does.
+
+First test on the VAIO (fresh boot, `mw-test.sh`): a `window.open` from a
+data: page produced a second BWindow at (5,29) with its own toolbar, widget 2,
+and its own presents; `hey ... set Frame of Window 0 to BRect(20,60,1019,709)`
+gave `OnBoundsFromLooper 1000x620`, `ResizeCanvas 1000x620` and a
+`PresentCanvas 1000x620` with the page laid out across the full width; closing
+window 1 destroyed its Shell and left one window. Closing the last window then
+took SEGV_MAPERR at null in `~RenderWidgetHostViewAura`, reached from
+`Shell::~Shell` -> `web_contents_.reset()`.
+
+Cause: `ShellPlatformDataAura` creates the process-wide `display::Screen`
+(`aura::ScreenOzone`) if none exists. With one ShellPlatformDataAura per Shell
+that made the *first Shell* the owner of the singleton, destroyed in `CleanUp`
+before that Shell's WebContents -- exactly the hazard the comment in
+`Shell::~Shell` warns about ("WebContents destruction sequence may depend on
+... the display::Screen singleton"). It would also have killed any window
+still open when the first one was closed. The Screen now lives in
+`PlatformData`, created in `Initialize()` before the first host, and
+`PlatformData` is deleted only after the last WebContents is gone. (This
+shutdown path had never run before: the old close button only hid the
+window, and `hey ... quit` on the old binary leaves the process running.)
+
+New windows are cascaded 32 px down and right per already-open window in
+`HaikuWindow::Show`; without that the second window sat exactly over the first.
+
+Second build, verified on the VAIO (`mw-test2.sh`, screenshots checked): popup
+at (37,61) beside the first at (5,29); closing the *first* window with the
+popup open left the popup working; resizing it gave a 900x570 present with
+the page re-wrapped; closing the last window ended with
+`PostMainMessageLoopRun: the loop has returned` and a clean exit, no signal.
+Installed to the Desktop; `readelf -d` shows libbe and no Qt.
+
+Build cost note: patch 0089 touches a file in content/browser's jumbo target.
+`ninja -n` predicted 127 edges including every `browser_jumbo_N.o`, but the
+jumbo merge action has `restat = 1` and `merge_for_jumbo.py` only rewrites
+changed files, so the real rebuild was one jumbo unit (`browser_jumbo_103.o`),
+content/shell, and the ozone target. Do not trust `ninja -n` for jumbo trees.

@@ -1,0 +1,20 @@
+--- a/content/browser/compositor/viz_process_transport_factory.cc
++++ b/content/browser/compositor/viz_process_transport_factory.cc
+@@ -431,9 +431,15 @@
+             .BindNewEndpointAndPassReceiver();
+   }
+ 
+   root_params->frame_sink_id = compositor->frame_sink_id();
+-#if defined(GPU_SURFACE_HANDLE_IS_ACCELERATED_WINDOW)
++  // Haiku is excluded from GPU_SURFACE_HANDLE_IS_ACCELERATED_WINDOW (see
++  // gpu/ipc/common/surface_handle.h), so upstream never tells viz which
++  // window a compositor draws into and every software output device is
++  // created for widget 0. The ozone backend resolves 0 to the only window it
++  // has, which is right with one window and wrong with two. Both types are
++  // int32_t on Haiku, so the widget goes through as-is.
++#if defined(GPU_SURFACE_HANDLE_IS_ACCELERATED_WINDOW) || defined(OS_HAIKU)
+   root_params->widget = compositor->widget();
+ #endif
+   root_params->gpu_compositing = gpu_compositing;
+   root_params->renderer_settings = viz::CreateRendererSettings();
+ 

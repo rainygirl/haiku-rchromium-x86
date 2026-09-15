@@ -79,6 +79,11 @@ Da una shell:
   `<secondi unix> <url> <titolo>` per segnalibro (separati da tabulazione),
   quindi sopravvivono alle reinstallazioni e possono essere modificati o
   salvati a mano.
+- **Finestre**: trascina l'angolo di ridimensionamento e la pagina si
+  riadatta alla nuova dimensione. Un link che apre una nuova finestra ottiene
+  una finestra R Chromium separata, spostata rispetto a quella corrente.
+  Chiudere una finestra chiude quella pagina; chiudere l'ultima finestra
+  termina R Chromium.
 
 ## Limiti noti
 
