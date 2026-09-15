@@ -24,37 +24,33 @@ you type.*
 - Haiku on 32-bit x86 (tested on a Sony VAIO P: Intel Atom Z520, 2 GB RAM).
 - The standard Haiku fonts (`NotoSans*` and `NotoSansCJKjp-VF.otf` under
   `/boot/system/data/fonts`). Hangul renders through the CJK face.
-- A built R Chromium: the `content_shell` binary with `content_shell.pak`,
-  `icudtl.dat` and `locales/` beside it (a build output directory, or a copy of
-  a known-good build such as `/boot/home/content_shell.last-good` plus those
-  files). To produce one, see `AGENTS.md`.
+- A built R Chromium (the `content_shell` binary with `content_shell.pak`,
+  `icudtl.dat` and `locales/` beside it). If you have this repository's build
+  tree it is already there; otherwise build it as described in
+  [`AGENTS.md`](AGENTS.md).
 
 ## Install
 
-1. Copy two helper scripts from this repository to your home directory. The
-   installer calls them by absolute path:
+On the Haiku machine, from a checkout of this repository, run the one-shot
+installer:
 
-   ```sh
-   cp scripts/install_to_desktop.sh scripts/verify_embedded_blob.py /boot/home/
-   cp assets/rchromium-fonts.conf /boot/home/rchromium-fonts.conf
-   ```
+```sh
+sh install.sh
+```
 
-   The fontconfig file is required: Haiku has no `/etc/fonts`, and without it
-   the browser exits the first time a page draws text. (If you run the
-   installer from inside this repository instead of from `/boot/home`, it
-   copies the file for you.)
+That is all. It provisions the fontconfig file Haiku lacks, verifies the
+browser binary (repairing it if this machine's linker damaged it), copies
+R Chromium into `/boot/home/RChromium/`, and puts the **R Chromium** launcher
+with the blue Chromium icon on your Desktop.
 
-2. Run the installer, pointing it at the directory that holds `content_shell`
-   (the default is the build output directory):
+If your build is somewhere other than the default, pass its directory:
 
-   ```sh
-   sh /boot/home/install_to_desktop.sh [/path/to/dir/with/content_shell] [/boot/home/RChromium]
-   ```
+```sh
+sh install.sh /path/to/dir/with/content_shell
+```
 
-   It copies the browser to `/boot/home/RChromium/`, writes the launcher
-   **R Chromium** on your Desktop with the blue Chromium icon, and installs
-   the fontconfig file Blink needs. It refuses to install a binary that fails
-   its integrity check (see Troubleshooting).
+(Producing that build from source is a separate, much longer job -- see
+[`AGENTS.md`](AGENTS.md). The installer installs an already-built binary.)
 
 ## Run
 
@@ -110,3 +106,7 @@ From a shell:
   in particular is required on this backend.
 - **Confirm it is Qt-free:** `readelf -d /boot/home/RChromium/content_shell | grep NEEDED`
   lists `libbe.so` and friends and no `libQt5*`.
+
+## AI disclosure
+
+This program was written with Claude.
