@@ -1,0 +1,45 @@
+--- a/net/url_request/url_request_http_job.cc
++++ b/net/url_request/url_request_http_job.cc
+@@ -533,12 +533,42 @@
+     } else {
+       // Advertise "br" encoding only if transferred data is opaque to proxy.
+       bool advertise_brotli = false;
++#if !defined(OS_HAIKU)
+       if (request()->context()->enable_brotli()) {
+         if (request()->url().SchemeIsCryptographic() ||
+             IsLocalhost(request()->url())) {
+           advertise_brotli = true;
+         }
+       }
++#else
++      // Brotli decoding is broken in this build, so do not ask for it.
++      //
++      // Every https:// page came back unreadable while http:// pages were
++      // fine, which is exactly the split this condition creates: Chromium
++      // advertises "br" only on cryptographic and localhost URLs. Capturing
++      // the response with --log-net-log --net-log-capture-mode=Everything
++      // showed the transfer itself was healthy -- HTTP/2, 200 OK, 318 bytes
++      // of body -- and that the *decoded* bytes were wrong:
++      //
++      //   <html   "en">   <title>   <link rel="icon"   "data:,"><meta
++      //
++      // Literals correct, and every back-reference replaced by whatever
++      // happened to be in the destination buffer. Decoding the same 318 bytes
++      // with an independent brotli gives the real page, so the data is fine
++      // and the decoder is not.
++      //
++      // It is not the library: the same object files (obj/third_party/brotli)
++      // decode that capture correctly when linked into a small test program,
++      // one-shot and streamed, at -O0 and -O2, with and without
++      // --gc-sections, as a PIE, with and without the encoder, and with
++      // BrotliSourceStream's own allocator. The dictionary is present and its
++      // pointer is valid at run time. Only the full content_shell link
++      // reproduces it, which is where the search has to continue.
++      //
++      // Until then: gzip and deflate work, so ask for those. The cost is
++      // transfer size, not correctness. Remove this the moment the decoder is
++      // fixed -- see docs/browser-ui-plan.md.
++#endif
+ 
+       // Supply Accept-Encoding headers first so that it is more likely that
+       // they will be in the first transmitted packet. This can sometimes make

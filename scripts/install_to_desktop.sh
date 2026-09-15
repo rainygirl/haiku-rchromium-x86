@@ -43,6 +43,26 @@ case "$arch" in
 esac
 
 mkdir -p "$APPDIR"
+# fontconfig has no /etc/fonts on Haiku; without this file Blink aborts in
+# font_cache.cc(472) on the first text it lays out. The launcher exports
+# FONTCONFIG_FILE pointing here. The file lives in the repo under assets/.
+if [ ! -f /boot/home/rchromium-fonts.conf ]; then
+    HERE=$(dirname "$0")
+    if [ -f "$HERE/../assets/rchromium-fonts.conf" ]; then
+        cp "$HERE/../assets/rchromium-fonts.conf" /boot/home/rchromium-fonts.conf
+    else
+        echo "install_to_desktop: /boot/home/rchromium-fonts.conf missing; copy assets/rchromium-fonts.conf there first" >&2
+        exit 1
+    fi
+fi
+# Refuse to install a binary whose V8 embedded-builtins blob does not match
+# embedded.o. The low-memory link on this machine has silently corrupted that
+# blob before (~88 KB overwritten mid-blob); such a binary renders static pages
+# but SIGILLs on the first JavaScript. See scripts/verify_embedded_blob.py.
+if ! python3 /boot/home/verify_embedded_blob.py "$BUILD/content_shell"; then
+    echo "install_to_desktop: embedded blob verification FAILED -- not installing" >&2
+    exit 1
+fi
 cp -f "$BUILD/content_shell" "$APPDIR/content_shell"
 for f in content_shell.pak shell_resources.pak icudtl.dat snapshot_blob.bin \
          v8_context_snapshot.bin; do
@@ -64,11 +84,18 @@ export FONTCONFIG_FILE
 # --single-process: the renderer still dies on startup in multi-process mode.
 # --in-process-gpu: viz hands the software output device a null widget across
 # the process boundary, so the pixels never reach the BView.
+# --disable-gpu-compositing: this is a pure software backend (no GPU), and
+# without it the renderer blocks at startup in EstablishGpuChannelSync waiting
+# for a GPU channel that will never come. On a 2-core Atom that handshake lost
+# a startup race about two launches in three, leaving the window with one
+# frame and no rendered page. The flag skips the handshake entirely and takes
+# the software CreateForWidget path -- 6/6 launches render with it, measured.
 exec "$APPDIR/content_shell" \
     --ozone-platform=haiku \
     --single-process \
     --disable-gpu \
     --in-process-gpu \
+    --disable-gpu-compositing \
     "$@"
 LAUNCH
 chmod +x "$LAUNCHER"

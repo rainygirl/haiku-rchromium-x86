@@ -755,3 +755,250 @@ render fully; alternating news.naver.com <-> news.google.co.kr five times
 crashes 0 times and keeps rendering (first paint 1-27 s, heavy first loads
 slower); google.co.kr and google.com render complete Korean pages. Verified by
 screenshot.
+
+### Re-navigation stall root cause: synchronous localStorage IPC
+
+Re-navigating within one window to a second heavy page renders unreliably --
+news.google.co.kr re-renders, news.naver.com comes up blank or stale (no
+crash). Root-caused with scripts/stackwalk.c on a short-lived instance
+(launch google-news, navigate to naver at t+30, capture renderer stacks at
+t+42, kill). The renderer main thread is blocked here:
+
+    StorageController::ResetStorageAreaAndNamespaceConnections
+     -> StorageNamespace::ResetStorageAreaAndNamespaceConnections
+      -> CachedStorageArea::ResetConnection
+       -> CachedStorageArea::EnsureLoaded
+        -> StorageAreaProxy::GetAll                 (SYNCHRONOUS mojo call)
+         -> InterfaceEndpointClient::SyncWatch
+          -> WaitableEvent::WaitMany -> ConditionVariable::Wait   (blocked)
+
+The chain that gets there is a storage-service reset on navigation
+(OnStorageServiceDisconnected -> RecoverFromStorageServiceCrash ->
+ResetStorageAreaAndNamespaceConnections). On navigation the localStorage
+connection is reset, and the renderer re-reads the area with a **synchronous**
+GetAll IPC.
+
+Why it hangs on this machine: there is no dedicated storage-service thread.
+`RunInProcessStorageService` runs it on a `base::ThreadPool` sequenced task
+runner. The renderer main thread blocks synchronously waiting for the reply,
+which must run on a ThreadPool worker -- and on the 2-core Atom the workers are
+contended (NetworkService was RUNNING, burning a core) so the storage sequence
+is not scheduled promptly. The sync call never returns, the renderer never runs
+layout for the new page, and the window keeps the old frame. Sites that touch
+localStorage heavily on load (naver) hit it; lighter ones (google news) do not.
+
+This is distinct from the initial-load stall (fixed with
+--disable-gpu-compositing) and from the frame-delete race (patch 0086). It is a
+sync-IPC-on-a-constrained-threadpool stall, and a real fix means either making
+that storage read non-blocking or guaranteeing the in-process storage sequence
+runs ahead of the blocked renderer -- both non-trivial and needing several
+build/reboot cycles on a machine that freezes after ~1h of heavy use. Handed to
+the arm64 UI track (owns re-navigation per the arm64-first plan) as a known
+risk with acceptance criteria; suspects to check there: the storage-service
+disconnect trigger and the sync GetAll path.
+
+### Storage corruption vs JS-execution SIGILL (in progress, cross-validated with arm64)
+
+The re-navigation white screen led to two distinct defects, cross-validated
+with the arm64 (Chromium 154) port over a shared debugging session.
+
+Defect 1 -- storage corruption (FIXED). With an empty browser-context path
+(no OS_HAIKU branch in ShellBrowserContext::InitWhileIOAllowed), BindPartition
+is rooted at "", the in-process storage service fails, and
+OnStorageServiceDisconnected loops -> the renderer blocks forever on the
+synchronous localStorage GetAll it issues on navigation (white screen). Giving
+it a real on-disk path instead made example.com crash 4/4 with SEGV_ACCERR in
+Builtins_MemMove under StringTable::LookupKey during first V8 context
+creation: an on-disk storage subsystem writes the 16-byte pattern
+{ptr=0, u64=0xffffffffffffffff} onto a PartitionAlloc slot span that happens
+to back V8's string_table_ (arm64 forensics, instrumented build: stomped
+first hashmap entry key=0, hash_and_exists_=0xffffffff). In --single-process
+the browser and renderer share one address space, so a browser-thread write
+lands in the renderer's V8 heap. Fix: make the Haiku main browser context
+off-the-record (shell_browser_main_parts.cc, OS_HAIKU guard) so the default
+storage partition is in-memory -- no on-disk subsystem, and BindPartition
+(nullopt) is a valid in-memory config (no disconnect loop). Verified:
+example.com went 4/4 crash -> 3/3 clean.
+
+Defect 2 -- JS-execution SIGILL (OPEN). With off-the-record, example.com (no
+script) renders, but any page that runs JS (naver, even a minimal data: inline
+script) takes SIGILL at Builtins_JSEntryTrampoline+0x10 (Execution::Call <-
+Script::Run <- V8ScriptRunner). arm64 with the same off-the-record fix runs
+JS fine (data: 100k-loop OK) but naver still crashes in the background parser
+-- so off-the-record does not fix naver on either arch, and the x86 SIGILL is
+a separate, x86-only failure of JS entry. Multiprocess (isolated renderer)
+does NOT help on x86: a fresh renderer process still SIGILLs at
+JSEntryTrampoline on naver's script (arm64's multiprocess renderer runs naver
+JS without the V8 crash). FRESH-BOOT VERDICT (uptime 0:02, first actions after reboot): Defect 2 is
+REAL, not degradation. A static data: page renders (styles=2, no crash) but a
+minimal inline script (`<script>console.log(42)</script>`) takes SIGILL, as
+does naver. So any JavaScript at all crashes; example.com only survives
+because it runs none. This is why naver shows white: its early inline <script>
+kills the renderer before first paint (styles=0).
+
+Faulting instruction (libdebug, runtime memory at the crash eip): the bytes
+are `ff ff ff 83 c4 10 8d 65 f4 5b 5e 5f 5d c3 69 20 3c 20 73 69 7a 65 28 29`
+-- a function epilogue (`add esp,16; lea esp,[ebp-12]; pop; ret`) immediately
+followed by the rodata string "i < size()". eip sits at the leading `ff ff`,
+which decodes as an illegal instruction (#UD). In other words V8's JS entry
+transferred control to a slightly-wrong address at a code/rodata boundary --
+a corrupt builtin call target, not a CPU-baseline instruction (the Atom Z520
+has SSSE3; V8 target is baseline x86, and the fault bytes are data, not an
+SSE4/AVX opcode). Deterministic across process models: a fresh isolated
+renderer process (multi-process) SIGILLs identically, so it is not per-process
+address fragmentation.
+
+This is a distinct, x86-only defect from Defect 1: V8 cannot execute embedded
+builtins correctly in this build. arm64 (same source, Chromium 154) runs JS
+fine, so it is specific to the x86/Chromium-87 embedded-builtins or their
+build (mksnapshot runs natively on the Atom; if V8 mis-executes there, the
+generated snapshot/embedded blob can be wrong -- chicken-and-egg). Whether it
+is a regression (days-ago naver showed 2057 compositor frames, which would
+need JS) or was always masked by measuring CSS `styles` rather than JS
+execution is unresolved. Fixing it is a V8-build investigation (embedded
+builtins / mksnapshot / link section handling), not a small patch.
+
+Font note for multiprocess on x86: the renderer child inherits FONTCONFIG_FILE
+from the environment, so exporting it before launch removes the
+font_cache.cc(472) CHECK (fonts are present: NotoSans*, NotoSansCJKjp). arm64
+did not need this because standard Haiku fonts are on its default fontconfig
+path.
+
+### Bottom line on JS-heavy pages (x86/Chromium-87 on the Atom): unresolved, nondeterministic
+
+After the storage fix (off-the-record) and extensive fresh-boot testing with
+the arm64 session, the honest state of JS-heavy pages on x86:
+
+  * Static / server-rendered pages (example.com) render reliably.
+  * Any page that runs non-trivial JavaScript (news.naver.com, and even a
+    minimal inline <script> on a bad run) fails NONDETERMINISTICALLY. Across
+    separate fresh boots the same binary has: SIGILL'd at V8 embedded builtins
+    (Builtins_JSEntryTrampoline, control transfer to a misaligned code
+    address), spun in the storage reconnect path, hung idle with the renderer
+    blocked and no styles resolved, and -- rarely -- rendered. The failure
+    MODE changes from boot to boot.
+  * Process model does not fix it on x86: a fresh isolated renderer process
+    (multi-process) SIGILLs the same way. This is the key x86/arm64 split --
+    arm64 (64-bit, Chromium 154) renders naver reliably in multi-process
+    (DevTools confirms title "네이버 뉴스"); x86 (32-bit, Chromium 87) does
+    not, in either process model.
+  * --js-flags toggles (--jitless, --no-short-builtin-calls, --stack-size)
+    change the luck but do not fix it.
+
+Root-caused to the CLASS but not a fix: V8's execution of generated/embedded
+code is intermittently invalid on 32-bit Haiku/Atom. This is the same
+"intermittent V8 code execution" fault noted much earlier (ILL_PRVOPC in
+Builtins_MemMove); patch 0085 (MAP_NORESERVE) was aimed at it and helps V8
+reserve its CodeRange but does not make execution reliable. It is a deep
+interaction between V8's code memory management and 32-bit Haiku's VM, distinct
+from the storage-corruption defect (which IS fixed) and not resolvable by a
+runtime flag or a small patch in-session. The reliable place for JS-heavy
+sites is the 64-bit arm64 port.
+
+What IS delivered and solid on x86: window + rendering of static/server pages
+(Google's server HTML, example.com), the native BeAPI toolbar (icon
+Back/Forward/Reload, address bar), date-grouped searchable bookmarks, Desktop
+install with the blue icon, Qt absent (readelf shows only libbe etc.),
+--disable-gpu-compositing for reliable startup paint, and the storage-crash
+fix (off-the-record in-memory storage). Patches 0080, 0082-0086 and the
+off-the-record change are in the tree.
+
+### RESOLVED: the JS SIGILL was a corrupt link, not a 32-bit V8 defect
+
+Byte-comparing the 1 MB V8 embedded-builtins blob in each binary against
+`obj/v8/v8_snapshot/embedded.o` (.text, 1,085,056 bytes):
+
+  * Sep 11 binary (linked by linkretry.sh, RCHROMIUM_KEEP_GC): 0 bytes differ.
+  * Every binary from linkretry-nice.sh (RCHROMIUM_GC_NO_O2 + NO_BUILDID,
+    --no-keep-memory): 85,217 bytes differ, concentrated in one contiguous
+    ~88 KB window (+0x1fcc..+0x17bdf) where 96% of bytes are foreign -- Blink
+    code and strings written over the blob's interior. The blob's start
+    (Builtins_RecordWrite) and padding are intact, which is why nothing
+    noticed. `Builtins_JSEntry` (blob+0x4d00) sits inside the window, so the
+    first JS execution jumped into Blink bytes and took SIGILL.
+
+That single fact explains everything attributed to "Defect 2": deterministic
+on JS, invisible on static pages, unaffected by process model, --jitless,
+--stack-size, --no-short-builtin-calls, MAP_NORESERVE, or off-the-record, and
+absent on arm64 (different toolchain). The "intermittent" readings were runs
+killed before the script executed. It is the same class as the brotli CLI
+corruption seen weeks earlier: this machine's old ld, under the low-memory
+flags, produces silently wrong output from correct objects.
+
+Fix: `scripts/verify_embedded_blob.py` (byte-compares the blob; exit 0 = OK)
+and `scripts/linkretry-verified.sh` (links in the known-good KEEP_GC mode and
+discards any binary whose blob does not verify). Never install a content_shell
+on this machine without the verifier passing. The storage fix (off-the-record)
+and --disable-gpu-compositing remain correct and stay.
+
+### RESOLVED (verified on screen): JS runs, naver and Google News render, re-navigation works
+
+After repairing the embedded blob in the installed binary (copying embedded.o's
+.text over the corrupt window; 85,217 bytes fixed; verifier: 0 differ):
+
+  * minimal inline JS: 3/3 runs, no crash, "JSWORKS 42" rendered in red
+  * news.naver.com launch: styles 2873, 109 paints, no crash, alive -- full
+    page with LIVE video thumbnails and images (JS-driven content)
+  * re-navigation via the address-bar path (Shell::LoadURL), the original
+    complaint: example.com -> naver (styles 2846) -> news.google.co.kr
+    (styles 3259, 872 paints), zero crashes, process alive
+
+Every earlier "Defect 2" observation -- JS SIGILL, "fresh boot only",
+intermittent ILL_PRVOPC, naver white screen, multiprocess "not helping" on
+x86 -- traces to the corrupt link. The storage fix (off-the-record) and
+--disable-gpu-compositing remain in place and are still correct.
+
+On-box link recipe now: linkretry-verified.sh links with both memory flags
+(the only way ld 2.17 fits here), auto-repairs the blob from embedded.o
+(valid because the blob has no relocations), verifies, and only then keeps the
+binary. install_to_desktop.sh refuses an unverified binary. A modern
+cross-linker (i586-pc-haiku-ld 2.41 on the M4 container) is the clean
+long-term alternative.
+
+### Bookmarks and toolbar verified end-to-end through their real handlers
+
+Driven remotely with scripted BMessages (scripts/ui-scripting/, see its
+README), so every result below went through the same code a click would:
+
+  * star (kMsgAddBookmark): writes `~/config/settings/RChromium/bookmarks` as
+    `<unix seconds>\t<url>\t<title>` -- "1789375918  https://news.naver.com/
+    네이버 뉴스"; starring the same URL again does not duplicate, it moves the
+    entry's time to now (the designed "bump to today").
+  * list (kMsgOpenBookmarks): a second window titled "Bookmarks" appears.
+  * date groups: "Today" group with both bookmarks. Found and fixed a UX bug
+    while testing: `BStringItem(group, 0, false)` created every group
+    COLLAPSED, so opening the window showed only a lone "Today" row; now
+    `true` (expanded by default), rebuilt and installed.
+  * search (kMsgBookmarkSearch, fired per keystroke via the modification
+    message): naver -> 2 rows (group + 네이버), google -> 2, zzz -> 0,
+    cleared -> 3. Case-insensitive substring on title and URL.
+  * open (kMsgBookmarkOpen via list invocation, == double-click): item 1 ->
+    LoadURL of the Google bookmark, page renders; item 2 -> LoadURL naver.
+  * address bar (kMsgGo): text "news.google.co.kr" -> Fixup -> LoadURL
+    https://news.google.co.kr/ -- the https default is verified end-to-end.
+  * persistence: both bookmarks survive relaunch.
+
+The self-healing link pipeline was exercised by this rebuild too: the link
+corrupted 761,763 of the blob's 1,085,056 bytes (worse than before), the
+repair step restored it, verification passed, installer accepted it.
+
+### Symbol list markers (disc/circle/square) crashed the renderer -- fixed
+
+Any page with a `<ul>` bullet list took SIGSEGV (SEGV_MAPERR at 0x58) the moment
+it laid out the list -- Wikipedia, and a bare `<ul><li>x</li></ul>` data: URL,
+every time; `<ol>` numbers and `list-style:none` were fine. Stack:
+`ShapeResult::CreateForSpaces` <- `NGInlineNode::ShapeText` (the
+`IsSymbolMarker()` branch) <- list-marker layout.
+
+Cause: on Haiku the symbol marker's `font->PrimaryFont()` is null (true even
+with an explicit, resolvable `font-family`, so it is not font matching -- the
+marker's Font object simply has no realized primary face here). The sibling
+`ListMarker::WidthOfSymbol` already guards this exact null
+(`if (!font_data) return LayoutUnit()`), but `CreateForSpaces` did not and
+dereferenced it. The symbol marker is painted as graphics, not from these
+glyphs -- the ShapeResult only feeds the line breaker a width -- so patch 0088
+guards the same null there: return an empty result of the requested width
+instead of dereferencing. `<ul>` pages and ko.wikipedia.org now render with no
+crash (verified on screen). Deeper root (why the marker's PrimaryFont is null
+on Haiku while body text of the same style resolves) is left as a cosmetic
+follow-up; the crash is gone and lists lay out.

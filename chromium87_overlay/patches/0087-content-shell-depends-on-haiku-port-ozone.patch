@@ -1,0 +1,17 @@
+--- a/content/shell/BUILD.gn
++++ b/content/shell/BUILD.gn
+@@ -372,6 +372,14 @@
+         "browser/shell_platform_delegate_aura.cc",
+         "browser/shell_web_contents_view_delegate_aura.cc",
+       ]
++      if (is_haiku) {
++        # shell_platform_delegate_aura.cc builds the native toolbar through
++        # haiku_port/ozone/haiku_browser_chrome.h. Haiku has toolkit_views
++        # off, so this aura delegate -- upstream's web-test configuration --
++        # is what a real browser window gets here, and it is the only place
++        # left to hang browser chrome off.
++        deps += [ "//haiku_port/ozone" ]
++      }
+     }
+   } else {
+     sources -= [

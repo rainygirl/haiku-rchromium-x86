@@ -117,7 +117,10 @@ class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
   ~HaikuChromeClient() = default;
 
   // "google.com" is what a person types into an address bar, and GURL on its
-  // own rejects it for having no scheme.
+  // own rejects it for having no scheme. Default the scheme to https:// --
+  // that is what every modern browser assumes, and defaulting to http:// only
+  // forced an extra http->https redirect round trip on sites (naver, google)
+  // that immediately upgrade, which on this 2-core machine is a visible delay.
   static GURL Fixup(const std::string& text) {
     std::string trimmed;
     base::TrimWhitespaceASCII(text, base::TRIM_ALL, &trimmed);
@@ -126,7 +129,7 @@ class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
     const GURL as_typed(trimmed);
     if (as_typed.is_valid() && as_typed.has_scheme())
       return as_typed;
-    return GURL("http://" + trimmed);
+    return GURL("https://" + trimmed);
   }
 
   void Post(Action action) {

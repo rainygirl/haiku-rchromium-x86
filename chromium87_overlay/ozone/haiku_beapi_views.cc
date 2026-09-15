@@ -904,7 +904,10 @@ class BookmarksWindow : public BWindow {
       }
       const std::string group = DateGroupLabel(entry.when);
       if (group != open_group) {
-        list_->AddItem(new BStringItem(group.c_str(), 0, false));
+        // Expanded by default: the third argument is `expanded`, and passing
+        // false left every date group collapsed, so opening the window showed
+        // only a lone "Today" row and no bookmarks until the user clicked it.
+        list_->AddItem(new BStringItem(group.c_str(), 0, true));
         open_group = group;
       }
       const std::string label =

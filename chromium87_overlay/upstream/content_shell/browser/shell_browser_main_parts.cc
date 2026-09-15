@@ -153,7 +153,27 @@ int ShellBrowserMainParts::PreEarlyInitialization() {
 }
 
 void ShellBrowserMainParts::InitializeBrowserContexts() {
+#if defined(OS_HAIKU)
+  // Off-the-record => the default storage partition is in-memory
+  // (StoragePartitionImpl is_in_memory_, from IsOffTheRecord()). This is
+  // deliberate on Haiku: with an on-disk partition, single-process
+  // content_shell crashes during the renderer's first V8 context creation
+  // (SEGV in Builtins_MemMove under StringTable::LookupKey, deterministic).
+  // An on-disk storage-service/disk_cache subsystem running on a browser
+  // thread corrupts the renderer's V8 heap because in --single-process they
+  // share one address space -- proven by: a separate renderer process
+  // (multi-process) sails past V8 context creation, and the empty-path build
+  // renders too, while any valid on-disk path crashes. In-memory storage
+  // avoids that subsystem entirely, and also avoids the empty-path
+  // OnStorageServiceDisconnected reconnect loop (BindPartition(nullopt) is a
+  // valid in-memory config, unlike a partition rooted at ""). content_shell
+  // is a throwaway shell; web storage need not persist, and bookmarks use a
+  // separate store (~/config/settings/RChromium), so nothing user-visible is
+  // lost.
+  set_browser_context(new ShellBrowserContext(true));
+#else
   set_browser_context(new ShellBrowserContext(false));
+#endif
   set_off_the_record_browser_context(new ShellBrowserContext(true));
 }
 

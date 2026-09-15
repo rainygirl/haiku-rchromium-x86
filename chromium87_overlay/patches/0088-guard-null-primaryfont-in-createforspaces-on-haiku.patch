@@ -1,0 +1,20 @@
+--- a/third_party/blink/renderer/platform/fonts/shaping/shape_result.cc
++++ b/third_party/blink/renderer/platform/fonts/shaping/shape_result.cc
+@@ -1453,6 +1453,17 @@
+   DCHECK(font_data);
+   scoped_refptr<ShapeResult> result =
+       ShapeResult::Create(font, start_index, length, direction);
++  // On Haiku a CSS symbol list marker (disc/circle/square) can reach here with
++  // a font whose PrimaryFont() is null -- the same null ListMarker::WidthOfSymbol
++  // already guards (returning 0 width). The symbol marker is painted as
++  // graphics, not from these glyphs; this ShapeResult exists only to give the
++  // line breaker a width. With no font data, return an empty result of the
++  // requested width instead of dereferencing null (which crashed every <ul>
++  // page, e.g. Wikipedia, with SIGSEGV here).
++  if (!font_data) {
++    result->width_ = width;
++    return result;
++  }
+   result->num_glyphs_ = length;
+   DCHECK_EQ(result->num_glyphs_, length);  // no overflow
+   result->has_vertical_offsets_ =

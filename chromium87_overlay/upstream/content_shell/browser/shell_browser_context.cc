@@ -37,6 +37,11 @@
 #include "base/base_paths_mac.h"
 #elif defined(OS_FUCHSIA)
 #include "base/base_paths_fuchsia.h"
+#elif defined(OS_HAIKU)
+// base_paths.h does not pull this in on Haiku (its OS chain covers only
+// win/apple/posix-fuchsia), so base::DIR_APP_DATA -- declared here and
+// implemented in base_paths_haiku.cc -- is otherwise invisible in this file.
+#include "base/base_paths_haiku.h"
 #endif
 
 namespace content {
@@ -152,6 +157,20 @@ void ShellBrowserContext::InitWhileIOAllowed() {
 #elif defined(OS_FUCHSIA)
   CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
   path_ = path_.Append(FILE_PATH_LITERAL("content_shell"));
+#elif defined(OS_HAIKU)
+  // Without this, path_ stays empty on Haiku (the branches above are all
+  // guarded to other OSes and the #else just NOTIMPLEMENTED()s). An empty
+  // browser-context path makes StoragePartitionImpl::GetStorageServicePartition
+  // call BindPartition() with a path rooted at "", the in-process storage
+  // service fails to create a Partition there and closes the pipe, and
+  // OnStorageServiceDisconnected -> RecoverFromStorageServiceCrash rebinds and
+  // fails again in a tight loop. The renderer then blocks forever on the
+  // synchronous localStorage GetAll it issues on navigation, so any page that
+  // touches localStorage (news.naver.com) comes up blank. DIR_APP_DATA is
+  // B_USER_SETTINGS_DIRECTORY (patch: base_paths_haiku.cc), i.e.
+  // ~/config/settings, so this lands at ~/config/settings/content_shell.
+  CHECK(base::PathService::Get(base::DIR_APP_DATA, &path_));
+  path_ = path_.Append("content_shell");
 #else
   NOTIMPLEMENTED();
 #endif

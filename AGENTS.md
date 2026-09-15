@@ -44,6 +44,41 @@ Run `make -C /boot/home/rchromium-native verify-no-qt` on Haiku after every
 overlay update. At final handoff, also inspect the executable with Haiku's
 runtime dependency tool and reject any Qt dependency.
 
+## Project purpose and limits
+
+The purpose of this project is to run Chromium on a **32-bit Haiku (i386)
+machine with the best performance that hardware allows**. On old, low-end x86
+hardware that means removing the Qt layer and wiring Chromium directly to the
+Haiku API, and that goal takes priority over everything else.
+
+This is not, and does not try to be, a general or official Chromium port for
+Haiku as a whole. Other architectures, a wide range of hardware, every Haiku
+release, and full Chromium feature compatibility are out of scope; features or
+portability may be sacrificed for i386 performance.
+
+It is also a small, unofficial port, so tracking Chromium upstream and applying
+its security fixes may lag or lapse. Chromium ships security fixes quickly; a
+build without the latest upstream security patches must not be considered safe
+for general browsing or for sensitive accounts. Anyone using a build must check
+its base revision and the date of its last security update.
+
+The production boundary is strict: code under `probe/` and `chromium_overlay/`
+may use Chromium and Haiku APIs but must not include or link Qt.
+`make verify-no-qt` enforces that rule.
+
+## Status (2026-09-14)
+
+The x86 port is a working browser: Chromium 87 `content_shell` on a native
+Haiku Ozone backend (no Qt) with a BeAPI toolbar. Verified on the VAIO P
+(Atom Z520, 2 GB): google.com, news.naver.com and news.google.co.kr render
+with JavaScript, including via address-bar re-navigation; icon-only
+Back/Forward/Reload; address field (bare hosts default to https://);
+date-grouped, searchable bookmarks; Desktop launcher with the blue Chromium
+icon; `readelf -d` lists libbe and friends, no libQt5*. Details, root causes
+and every fix are in `docs/browser-ui-plan.md`. Known limits: web storage is
+session-only (off-the-record, by design -- see the docs), and Google News
+takes 6-8 s on the Atom (renderer CPU-bound; naver loads in 1.5-2.5 s).
+
 ## Physical Haiku machine
 
 - SSH: `user@haiku`. **Never issue `shutdown` or `reboot` from an attached SSH
@@ -134,6 +169,134 @@ before touching anything; if the watchdog is alive, let it do the restarting.
   dropped -- but it does not touch compiler command strings for targets
   unaffected by the flags, so the objects already built for those stay valid.
 
+## Building and linking on the VAIO
+
+The end-user README only installs a finished build. Producing that build on
+the machine itself:
+
+### One-time machine setup
+
+```sh
+# helper scripts the link pipeline and the installer call by absolute path
+cp scripts/verify_embedded_blob.py scripts/repair_embedded_blob.py \
+   scripts/linkretry-verified.sh scripts/install_to_desktop.sh /boot/home/
+# fontconfig has no /etc/fonts on Haiku; Blink needs this or it aborts on the
+# first text it lays out (font_cache.cc). The installer also copies it if absent.
+cp assets/rchromium-fonts.conf /boot/home/rchromium-fonts.conf
+# the low-memory g++ wrapper the link goes through (see the file's comments)
+mkdir -p /boot/home/config/non-packaged/bin-lowmem
+cp scripts/lowmem-toolchain/g++-x86 /boot/home/config/non-packaged/bin-lowmem/
+```
+
+Fonts: the system `NotoSans*` and `NotoSansCJKjp-VF.otf` under
+`/boot/system/data/fonts/{ttfonts,otfonts}` are what `rchromium-fonts.conf`
+lists; Hangul renders through the CJK face.
+
+### Link (on a freshly booted machine)
+
+```sh
+sh /boot/home/linkretry-verified.sh        # log: /boot/home/linkretry-verified.log
+```
+
+Why this and not plain `ninja`: this machine's GNU ld 2.17 needs
+`--no-keep-memory --reduce-memory-overheads` to fit the 188 MB link in 2 GB at
+all, and with those flags it silently overwrites the interior of V8's 1 MB
+embedded-builtins blob with stale bytes from earlier inputs. The result renders
+static pages and takes SIGILL on the first JavaScript. The blob has no
+relocations, so the script repairs it by copying `embedded.o`'s `.text` back,
+then byte-verifies it against the object and only then keeps the binary as
+`/boot/home/content_shell.last-good`. Link right after a reboot: a heavy
+recompile beforehand leaves ld no memory and it is killed at ~141 MB of output.
+
+
+Then install with `install_to_desktop.sh` as described in `README.md`. The
+overlay attach / Chromium 87 bootstrap / bring-up order that produce the
+objects the link consumes are the sections below.
+
+## Attaching to a synced Chromium checkout
+
+```sh
+./scripts/attach_overlay.sh /absolute/path/to/chromium/src
+gn gen out/haiku --args='use_ozone=true ozone_platform="haiku" ozone_auto_platforms=false ozone_extra_path="//haiku_port/ozone_extra.gni"'
+```
+
+The attachment is an untracked symbolic link. Updating Chromium remains a
+normal `gclient sync`; no change is made to Haiku itself and no upstream push
+is performed.
+
+## Chromium 87 bootstrap
+
+The first engine bring-up uses the Chromium 87 source already ported by
+HaikuPorts. Both inputs are pinned and checksum-verified; this avoids silently
+following a moving patch URL:
+
+- qtwebengine-chromium commit `4d8433e345aa23bfb55be66f0aa13656ee92fa38`
+- HaikuPorts commit `3fb92032fd276268f38665ddfff1eddc670419fa`
+
+QtWebEngine's archive omits the Content Shell implementation directories even
+though its `BUILD.gn` still references them. The overlay therefore vendors the
+82 unmodified files from Chromium `87.0.4280.144` revision
+`38a74c624ca48a6acb2a6f427998be599b504eed` under
+`chromium87_overlay/upstream/content_shell`. The original archive checksum and
+URL are recorded in `chromium87_overlay/upstream/README.md`; the attach script
+links the missing directories into the checkout without copying them into the
+upstream source tree.
+
+`scripts/prepare_chromium87.sh` applies the existing OS, process, threading,
+V8, networking and toolchain work. `scripts/build_content_shell87.sh` first
+builds a Qt-free, headless `content_shell`. That target isolates engine/build
+failures from the new native window backend. It is an intermediate diagnostic
+binary, not the final browser.
+
+After the headless engine succeeds, `scripts/attach_chromium87_overlay.sh`
+attaches the native backend and `scripts/build_native_content_shell87.sh`
+builds it. The initial native compositor is intentionally software-only and
+must be launched with `--single-process --disable-gpu --in-process-gpu
+--disable-gpu-compositing` (the run script and the Desktop launcher carry
+them); Skia raster pixels are copied directly into a Haiku `BBitmap` and
+presented by `BView`.
+
+After the binary exists, launch the first Google render with:
+
+```sh
+./scripts/run_native_content_shell87.sh \
+  /boot/home/rchromium-chromium87-fast https://www.google.com/
+```
+
+## Bring-up order
+
+1. Port Chromium `base` process, thread, file, time and message-pump primitives
+   to `OS_HAIKU` for both Haiku ABIs.
+2. Implement `PlatformWindow` with `BWindow`, translating mouse, keyboard,
+   focus, move and resize events.
+3. Implement `SurfaceOzoneCanvas` with a software `BBitmap` swap path.
+4. Add screen, clipboard, cursor and IME implementations.
+5. Start `content_shell`, then enable the minimal R Chromium browser UI.
+6. Add Mesa/EGL acceleration only after the software path is stable.
+
+The overlay intentionally does not pretend to be complete: Chromium `main`
+does not currently recognize Haiku as a target OS, so Ozone alone cannot be
+linked until the `base` and build-config port in step 1 exists.
+
+## Relationship to the arm64 port
+
+This is the x86 (Chromium 87) port. There is a sibling arm64 (Chromium 154)
+port at `../rchromium-native-arm64/`. Each platform carries its **own** native
+BeAPI toolbar implementation -- they cannot share source verbatim because
+content_shell's Shell/aura APIs differ between 87 and 154. What they share is
+the design: a widget-keyed bridge so content_shell never names a BeAPI type
+(all BeAPI-derived classes live in an RTTI-compiled `beapi_views` target),
+an explicit `platform_->aura->ShowWindow()` from the shell delegate, and the
+same delegate-hook mapping (address bar, load state, title, bookmarks).
+
+Both toolbars deliver the same feature set: icon-only Back/Forward/Reload, an
+address field, date-grouped searchable bookmarks, and a Desktop launcher with
+the blue Chromium icon. If you are about to add a toolbar here, it already
+exists (`chromium87_overlay/ozone/haiku_beapi_views.cc`,
+`haiku_browser_chrome.h`) -- do not duplicate it.
+
+The x86-specific rendering-reliability work (fixes and diagnosis) is in
+`docs/browser-ui-plan.md`.
 ## Rules that cost something to learn
 
 - **Never run a system update** (`pkgman update`) while the port is unfinished.
