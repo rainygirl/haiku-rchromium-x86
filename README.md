@@ -1,5 +1,7 @@
 # R Chromium (x86)
 
+**English** | [日本語](README.ja.md) | [Italiano](README.it.md) | [한국어](README.ko.md)
+
 A Chromium-based web browser for 32-bit Haiku (i386), built on Haiku's own
 window system with no Qt. It renders modern sites with JavaScript (google.com,
 news.naver.com, news.google.co.kr), has a native toolbar with icon-only
@@ -11,13 +13,7 @@ and everything else for developers live in [`AGENTS.md`](AGENTS.md).
 
 ![Korean Wikipedia rendered in R Chromium on the VAIO P](docs/screenshots/x86-wikipedia.png)
 
-*ko.wikipedia.org in R Chromium (Haiku x86, VAIO P). Toolbar: Back / Forward /
-Reload-Stop, address field, bookmark star, bookmark list.*
-
 ![The Bookmarks window, grouped by date](docs/screenshots/x86-bookmarks.png)
-
-*The Bookmarks window: date-grouped entries with a search field that filters as
-you type.*
 
 ## Requirements
 
