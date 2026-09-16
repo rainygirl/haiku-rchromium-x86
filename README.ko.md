@@ -27,7 +27,31 @@
   있다면 이미 들어 있습니다. 없다면 [`AGENTS.md`](AGENTS.md)의 설명대로
   빌드하세요.
 
-## 설치
+## pkgman으로 설치
+
+빌드된 브라우저가 `pkgman.rainygirl.com` 패키지 저장소에 올라가 있어서, 빌드나
+체크아웃 없이 설치할 수 있습니다. `x86_gcc2` 하이브리드(일반적인 32비트 설치,
+VAIO P가 쓰는 것)에서는 x86 보조 툴체인으로 빌드된 `rchromium_x86` 패키지입니다:
+
+```sh
+pkgman add-repo https://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+약 200 MB이니 `/boot`에 그만큼 여유 공간이 있어야 합니다.
+`/boot/system/apps/RChromium/`에 fontconfig 파일과 함께 설치되고,
+**Deskbar -> Applications**에 **R Chromium**이, `rchromium` 명령이 추가됩니다.
+제거는 `pkgman uninstall rchromium_x86`입니다.
+
+`pkgman add-repo`가 `Operation not supported`로 실패하면 그 빌드의 pkgman
+네트워크 킷이 TLS를 못 하는 것이니 HTTP 주소를 사용합니다:
+
+```sh
+yes | pkgman add-repo http://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+## 체크아웃에서 설치
 
 Haiku 머신에서 이 저장소를 체크아웃한 뒤 원샷 설치 스크립트를 실행합니다:
 

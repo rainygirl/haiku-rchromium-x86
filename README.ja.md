@@ -27,7 +27,32 @@ Haiku 自身のウィンドウシステム上で動作します。JavaScript を
   あればすでに含まれています。ない場合は [`AGENTS.md`](AGENTS.md) の説明に
   従ってビルドしてください。
 
-## インストール
+## pkgman でインストール
+
+ビルド済みのブラウザが `pkgman.rainygirl.com` パッケージリポジトリで公開されて
+いるので、ビルドもチェックアウトも不要です。`x86_gcc2` ハイブリッド (一般的な
+32 ビット環境で、VAIO P もこれ) では、x86 セカンダリツールチェインでビルドした
+`rchromium_x86` パッケージです:
+
+```sh
+pkgman add-repo https://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+約 200 MB なので `/boot` にその分の空きが必要です。`/boot/system/apps/RChromium/`
+に fontconfig ファイルと一緒にインストールされ、**Deskbar -> Applications** に
+**R Chromium** が、`rchromium` コマンドが追加されます。削除は
+`pkgman uninstall rchromium_x86` です。
+
+`pkgman add-repo` が `Operation not supported` で失敗する場合、そのビルドの
+pkgman のネットワークキットは TLS を扱えないので、HTTP のアドレスを使います:
+
+```sh
+yes | pkgman add-repo http://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+## チェックアウトからインストール
 
 Haiku マシン上で、このリポジトリのチェックアウトからワンショットインストーラを
 実行します:

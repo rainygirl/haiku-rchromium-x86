@@ -29,7 +29,32 @@ trovano in [`AGENTS.md`](AGENTS.md).
   repository e' gia' presente; altrimenti compilala come descritto in
   [`AGENTS.md`](AGENTS.md).
 
-## Installazione
+## Installazione con pkgman
+
+Il browser gia compilato e pubblicato nel repository di pacchetti
+`pkgman.rainygirl.com`, quindi non serve compilare ne clonare nulla. Su un
+ibrido `x86_gcc2` (la normale installazione a 32 bit, quella del VAIO P) il
+pacchetto e `rchromium_x86`, compilato con la toolchain secondaria x86:
+
+```sh
+pkgman add-repo https://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+Circa 200 MB: tieni altrettanto spazio libero su `/boot`. Si installa in
+`/boot/system/apps/RChromium/` con il file fontconfig accanto, aggiunge
+**R Chromium** a **Deskbar -> Applications** e il comando `rchromium`.
+Si rimuove con `pkgman uninstall rchromium_x86`.
+
+Se `pkgman add-repo` fallisce con `Operation not supported`, il network kit di
+pkgman di quella build non sa fare TLS: usa l'indirizzo HTTP:
+
+```sh
+yes | pkgman add-repo http://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+## Installazione da un checkout
 
 Sulla macchina Haiku, da un checkout di questo repository, esegui
 l'installer in un passo:

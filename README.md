@@ -25,7 +25,32 @@ and everything else for developers live in [`AGENTS.md`](AGENTS.md).
   tree it is already there; otherwise build it as described in
   [`AGENTS.md`](AGENTS.md).
 
-## Install
+## Install with pkgman
+
+The built browser is published in the `pkgman.rainygirl.com` package
+repository, so nothing has to be built or checked out. On an `x86_gcc2`
+hybrid (the usual 32-bit install, and what the VAIO P runs) the package is
+`rchromium_x86`, built against the x86 secondary toolchain:
+
+```sh
+pkgman add-repo https://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+About 200 MB; keep that much free on `/boot`. It installs into
+`/boot/system/apps/RChromium/` with the fontconfig file beside it, adds
+**R Chromium** to **Deskbar -> Applications** and an `rchromium` command.
+Remove it with `pkgman uninstall rchromium_x86`.
+
+If `pkgman add-repo` fails with `Operation not supported`, pkgman's network
+kit on that build cannot do TLS; use the HTTP address instead:
+
+```sh
+yes | pkgman add-repo http://pkgman.rainygirl.com/x86_gcc2
+pkgman install rchromium_x86
+```
+
+## Install from a checkout
 
 On the Haiku machine, from a checkout of this repository, run the one-shot
 installer:
