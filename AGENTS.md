@@ -82,6 +82,19 @@ and every fix are in `docs/browser-ui-plan.md`. Known limits: web storage is
 session-only (off-the-record, by design -- see the docs), and Google News
 takes 6-8 s on the Atom (renderer CPU-bound; naver loads in 1.5-2.5 s).
 
+2026-09-20: `https://x.com/i/flow/login` renders too -- the X logo, the
+phone/Google/Apple buttons and the email field, from the binary installed by
+`install.sh` (`docs/screenshots/x86-x-com-login.png`). Getting there took a
+thread-stack fix (patch 0090), a relink through
+`scripts/linkretry-verified.sh`, and restoring
+`/boot/home/rchromium-fonts.conf`; the section below has the whole story.
+Web fonts still do not load -- `remote_font_face_source.cc(356)` and
+`computed_style.cc(1683)` `NOTREACHED()` both say
+`GetLastResortFallbackFont()` returned null -- so pages render in Noto rather
+than their own typeface. Adding Arial/Times/Courier aliases to the fontconfig
+file does not change it; the cause is further in, and this is the next thing
+to look at.
+
 ## Physical Haiku machine
 
 - SSH: `user@haiku`. **Never issue `shutdown` or `reboot` from an attached SSH
