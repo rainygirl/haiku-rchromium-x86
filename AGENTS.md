@@ -774,6 +774,46 @@ skipped the whole detour. And the crashing thread varying between runs
 read as evidence of a bad shared mapping when it is equally what four
 scattered holes in the binary look like.
 
+## Half the machine goes to a poll() spin on dead descriptors (2026-09-20)
+
+Symptom, reported from the chair: on x.com, typing a character into a text
+field leaves the browser frozen for more than a minute. Measured with an
+injected keystroke (see the section below) it did not arrive at all inside 86
+seconds.
+
+`top` says why in one line:
+
+	THID   TOTAL    USER   KERNEL  %CPU  THREAD NAME
+	 518  4974.43  340.00 4633.00  49.7  NetworkService
+
+Those are milliseconds in a five-second window on a two-CPU machine: one whole
+logical CPU, 89% of it in the kernel. `profile -a -k` puts the time in poll()'s
+own machinery -- `select_fd`, `deselect_fd`, `create_sem_etc`,
+`delete_sem_internal`, `socket_request_notification` -- which is expensive here
+because Haiku builds and tears down a semaphore and a select entry per
+descriptor per call.
+
+`strace -i -e poll <thread>` names the cause: **203 of 232 poll() calls come
+back POLLNVAL** on five descriptors that have been closed while still
+registered. Later, with more of the page loaded, 8357 calls in six seconds on
+six descriptors, fd 0 among them -- the same descriptor the 2026-09-15
+`close(0)` bug closed underneath the browser. Something on Haiku closes
+descriptors this process still owns.
+
+libevent's poll backend has no case for POLLNVAL: `poll_dispatch()` maps only
+POLLHUP and POLLERR onto EV_READ/EV_WRITE, and a slot nothing is watching has
+no `r_ev` or `w_ev` to dispatch to anyway. So it does nothing and calls poll()
+again, which returns immediately, forever. `about:blank` never triggers it; it
+takes x.com's connection churn. Patch
+`0091-stop-libevent-spinning-on-dead-descriptors-on-haiku.patch`.
+
+**Haiku's poll() ORs POLLERR|POLLHUP|POLLNVAL into the caller's `events`
+field.** Every slot therefore has a non-zero `events` after the first call, and
+"is anything still registered on this descriptor?" has to be asked as "is
+POLLIN or POLLOUT set?". The first attempt at the patch tested `events != 0`,
+which is always true, and changed nothing -- the measurement afterwards looked
+exactly like no patch at all.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
