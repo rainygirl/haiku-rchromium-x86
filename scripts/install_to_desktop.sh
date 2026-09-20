@@ -63,6 +63,13 @@ if ! python3 /boot/home/verify_embedded_blob.py "$BUILD/content_shell"; then
     echo "install_to_desktop: embedded blob verification FAILED -- not installing" >&2
     exit 1
 fi
+# The same link also writes whole zero pages outside the blob; see
+# scripts/scan_zero_pages.py and the 2026-09-20 entry in AGENTS.md.
+if [ -f /boot/home/scan_zero_pages.py ] \
+   && ! python3 /boot/home/scan_zero_pages.py "$BUILD/content_shell"; then
+    echo "install_to_desktop: zero-page scan FAILED -- not installing" >&2
+    exit 1
+fi
 cp -f "$BUILD/content_shell" "$APPDIR/content_shell"
 for f in content_shell.pak shell_resources.pak icudtl.dat snapshot_blob.bin \
          v8_context_snapshot.bin; do

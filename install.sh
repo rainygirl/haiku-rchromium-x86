@@ -36,7 +36,8 @@ echo "  into  : $APP_DIR"
 # 1. Helper scripts install_to_desktop.sh calls by absolute path, plus the blob
 #    verifier/repairer.
 echo "* provisioning helper scripts and fontconfig"
-cp -f "$HERE/scripts/verify_embedded_blob.py" "$HERE/scripts/repair_embedded_blob.py" /boot/home/
+cp -f "$HERE/scripts/verify_embedded_blob.py" "$HERE/scripts/repair_embedded_blob.py" \
+      "$HERE/scripts/scan_zero_pages.py" /boot/home/
 cp -f "$HERE/assets/rchromium-fonts.conf" /boot/home/rchromium-fonts.conf
 
 # 2. Repair the embedded blob in place if the link corrupted it (this machine's
@@ -53,6 +54,14 @@ if ! python3 /boot/home/verify_embedded_blob.py "$BUILD/content_shell" >/dev/nul
   rebuild with scripts/linkretry-verified.sh (AGENTS.md)."
     fi
 fi
+
+# 2b. The blob is not the only thing a bad link damages. On 2026-09-20 a link
+#     wrote 142 page-aligned zero pages into .text and .rodata; only 59 of them
+#     were inside the blob, so the check above would have passed the rest.
+#     Nothing can repair those, so refuse the binary outright.
+python3 /boot/home/scan_zero_pages.py "$BUILD/content_shell" \
+    || fail "the binary has zero pages where code should be -- it is a bad link.
+  Rebuild with scripts/linkretry-verified.sh (AGENTS.md)."
 
 # 3. Copy binary + resources, write the Desktop launcher with the icon.
 echo "* installing to $APP_DIR and the Desktop"
