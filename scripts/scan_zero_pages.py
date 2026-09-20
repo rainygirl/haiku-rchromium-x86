@@ -14,6 +14,11 @@ be real x86 code: alignment padding is nops or 0xcc, and no function is 4 kB of
 `add %al,(%eax)`. .rodata legitimately holds a few isolated zero pages (the
 known-good Sep 15 binary has four), so only runs are rejected there.
 
+A .rodata run is a weaker signal than a .text one: a genuinely zero const
+object trips it, and one does -- libaom's 128 kB `wedge_mask_buf`, 32 zero
+pages, in the arm64 sibling's binary. Look the address up with `nm` before
+believing a .rodata-only failure.
+
 usage: scan_zero_pages.py <binary>        exit 0 = clean
 """
 import struct
@@ -24,34 +29,40 @@ PAGE = 4096
 
 
 def sections(b):
-    shoff = struct.unpack_from("<I", b, 0x20)[0]
-    shent = struct.unpack_from("<H", b, 0x2E)[0]
-    shnum = struct.unpack_from("<H", b, 0x30)[0]
-    strndx = struct.unpack_from("<H", b, 0x32)[0]
-    secs = [struct.unpack_from("<IIIIIIIIII", b, shoff + i * shent)
-            for i in range(shnum)]
-    stroff = secs[strndx][4]
+    """(name, file offset, size) per section, for ELF32 or ELF64."""
+    if b[:4] != b"\x7fELF":
+        sys.exit("not an ELF file")
+    if b[4] == 2:  # ELFCLASS64
+        shoff = struct.unpack_from("<Q", b, 0x28)[0]
+        shent, shnum, strndx = struct.unpack_from("<HHH", b, 0x3A)
+        fmt, off_i, size_i = "<IIQQQQIIQQ", 4, 5
+    else:
+        shoff = struct.unpack_from("<I", b, 0x20)[0]
+        shent, shnum, strndx = struct.unpack_from("<HHH", b, 0x2E)
+        fmt, off_i, size_i = "<IIIIIIIIII", 4, 5
+    secs = [struct.unpack_from(fmt, b, shoff + i * shent) for i in range(shnum)]
+    stroff = secs[strndx][off_i]
     out = []
-    for s in secs:  # Elf32_Shdr: name type flags addr offset size ...
+    for s in secs:  # Shdr: name type flags addr offset size link info align ..
         n = b[stroff + s[0]:b.index(b"\0", stroff + s[0])].decode()
-        out.append((n, s[4], s[5]))
+        out.append((n, s[off_i], s[size_i], s[off_i + 4]))
     return out
 
 
 def main():
     path = sys.argv[1]
     b = open(path, "rb").read()
-    secs = {n: (off, size) for n, off, size in sections(b)}
+    secs = {n: (off, size, align) for n, off, size, align in sections(b)}
     ranges = []
     for name in (".text", ".rodata"):
         if name in secs:
-            off, size = secs[name]
-            ranges.append((name, off, off + size))
+            off, size, align = secs[name]
+            ranges.append((name, off, off + size, align))
     if not ranges:
         sys.exit("no .text/.rodata in %s" % path)
 
     bad = []
-    for name, start, end in ranges:
+    for name, start, end, align in ranges:
         first = (start + PAGE - 1) // PAGE * PAGE
         runs = []
         page = first
@@ -64,6 +75,12 @@ def main():
             page += PAGE
         limit = 1 if name == ".text" else RODATA_RUN_LIMIT
         for off, n in runs:
+            # A run that ends on one of the section's own alignment boundaries
+            # is padding the linker inserted to place what follows. lld gives
+            # arm64 .text a 64 kB alignment and pads four zero pages in front
+            # of V8's embedded blob; that is layout, not damage.
+            if align >= PAGE and (off + n * PAGE) % align == 0:
+                continue
             if n >= limit:
                 bad.append((name, off, n))
 
