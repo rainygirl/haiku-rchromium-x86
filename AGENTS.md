@@ -684,6 +684,36 @@ Thread]`) partway through. `-Wl,--no-keep-memory -Wl,--reduce-memory-overheads`
 with `-Wl,-O0` completes; plain `-Wl,-O2` with `--no-keep-memory` fails
 differently, with `.text is too large`.
 
+## After the stack fix: V8's builtin code reads as zeros (open, 2026-09-20)
+
+With the 256 kB stack fixed (patch 0090), x.com no longer overflows the
+interpreter stack -- and stops somewhere else instead. Run content_shell with
+`--disable-in-process-stack-traces` so Chromium's own handler does not call
+`_exit()` first and Haiku's debug_server writes a real report; that is what
+produced both this and the stack-overflow finding.
+
+The faulting thread is `Chrome_InProcRendererThread`, and the report says:
+
+	0x78767418	0x330e620	Builtins_JSEntry + 0
+		Disassembly:
+			Builtins_JSEntry:
+			0x0330e620:             0000  addb %al, (%eax) <--
+
+`Builtins_JSEntry` is **all zeros**. V8's embedded builtin code is not there,
+and the first instruction executed out of that page is a zero word. An
+earlier run without the debugger died as `SEGV_ACCERR` -- a mapped page whose
+permissions refused the access -- which fits the same picture from the other
+side.
+
+So this is V8's code range, not the heap corruption the arm64 port is chasing;
+the two ports are failing for different reasons. Start from
+`0085-map-noreserve-for-v8-code-range-on-haiku.patch` and whatever
+`platform-haiku.cc` does for reserving, committing and protecting code memory.
+
+The crashing thread is not always the same one (`VizCompositorThread` in an
+earlier report, `NetworkService` listed in another), which is what a bad
+shared mapping looks like rather than a fault in any one thread's work.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
