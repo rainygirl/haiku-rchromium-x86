@@ -684,7 +684,7 @@ Thread]`) partway through. `-Wl,--no-keep-memory -Wl,--reduce-memory-overheads`
 with `-Wl,-O0` completes; plain `-Wl,-O2` with `--no-keep-memory` fails
 differently, with `.text is too large`.
 
-## After the stack fix: V8's builtin code reads as zeros (open, 2026-09-20)
+## After the stack fix: V8's builtin code reads as zeros (2026-09-20, it was the link)
 
 With the 256 kB stack fixed (patch 0090), x.com no longer overflows the
 interpreter stack -- and stops somewhere else instead. Run content_shell with
@@ -705,14 +705,61 @@ earlier run without the debugger died as `SEGV_ACCERR` -- a mapped page whose
 permissions refused the access -- which fits the same picture from the other
 side.
 
-So this is V8's code range, not the heap corruption the arm64 port is chasing;
-the two ports are failing for different reasons. Start from
-`0085-map-noreserve-for-v8-code-range-on-haiku.patch` and whatever
-`platform-haiku.cc` does for reserving, committing and protecting code memory.
+**RESOLVED the same day: it was a bad link, not V8 and not a mapping.** The
+zeros are in the file on disk. `nm-x86` puts `Builtins_JSEntry` at vaddr
+`0x01d77620`; the text segment loads at vaddr 0, so that is also its file
+offset, and `dd` reads 64 zero bytes there straight out of the binary. No
+process, no mapping, no V8 involved.
 
-The crashing thread is not always the same one (`VizCompositorThread` in an
-earlier report, `NetworkService` listed in another), which is what a bad
-shared mapping looks like rather than a fault in any one thread's work.
+A page scan of the whole first PT_LOAD found 142 zero pages in four
+page-aligned runs:
+
+	file 0x00780000   7 pages   .text
+	file 0x01d75000  59 pages   .text  (V8's embedded blob; JSEntry is here)
+	file 0x06f6a000  67 pages   .rodata
+	file 0x07065000   9 pages   .rodata
+
+The Sep 15 binary kept as `/boot/home/content_shell.last-good` has no run
+longer than two pages, so this is damage, not layout. Page-aligned runs of
+zeros in a file `ld` reported no error writing are a lost writeback, not a
+linker decision -- the same machine, the same low-memory link flags, and a
+failure mode one step worse than the stale-bytes corruption that
+`verify_embedded_blob.py` was written for in the first place.
+
+The lesson is about the gate, not about the linker: `verify_embedded_blob.py`
+compares V8's 1 MB blob and nothing else, so it would have caught the 59-page
+run and missed the other three. `scripts/scan_zero_pages.py` rejects any whole
+zero page in `.text` and any run of four in `.rodata`, and
+`linkretry-verified.sh` now runs both gates. **A link done outside that script
+is not trustworthy on this machine** -- the Sep 20 00:15 link was, and cost a
+day of reading a corrupt binary as a V8 defect.
+
+Relinking through the script (2026-09-20 11:45) produced a binary that passes
+both gates -- the blob came out corrupt again and was repaired from
+`embedded.o`, which is routine here. With that binary x.com gets all the way
+to layout, and the next stop was a second, unrelated omission:
+`/boot/home/rchromium-fonts.conf` was not on the machine, so the bundled
+fontconfig loaded no configuration, `FontFallbackIterator` ran out of fallback
+fonts on the first text it shaped, and `font_cache.cc(472) Check failed: false`
+aborted the renderer. `cp assets/rchromium-fonts.conf /boot/home/` -- it is in
+`install.sh` and in every README's troubleshooting section, and this machine
+had lost it.
+
+With both fixed, **`https://x.com/i/flow/login` renders**: the X logo, "See
+what's happening", the phone/Google/Apple buttons with their icons, and the
+email field, laid out and shaped correctly at 800x600. The process stays up.
+Remaining noise in the log, none of it fatal: `remote_font_face_source.cc(356)`
+and `computed_style.cc(1683)` `NOTREACHED()` (web fonts are not loading, so the
+page falls back to system fonts), and `No net_fetcher` for AIA/OCSP/CRL.
+
+Two notes for whoever reads a report like the one above. `Builtins_JSEntry` at
+`0x330e620` was inside `content_shell_seg0rx` (`0x01597000`-`0x09a85000`) in
+the same report's area list, which already said it was the executable's own
+file-backed text and not a V8 `CodeRange` mmap; checking that first would have
+skipped the whole detour. And the crashing thread varying between runs
+(`Chrome_InProcRendererThread`, `VizCompositorThread`, `NetworkService`) was
+read as evidence of a bad shared mapping when it is equally what four
+scattered holes in the binary look like.
 
 ## Injecting keystrokes for a real test (2026-09-20)
 
