@@ -1,0 +1,126 @@
+Stop libevent's poll backend spinning on dead descriptors on Haiku.
+
+Haiku has neither epoll nor kqueue, so libevent falls back to poll(), and
+poll() reports POLLNVAL, POLLERR and POLLHUP whether or not they were asked
+for. Two consequences, and this port hits both.
+
+First: poll_dispatch() turns revents into libevent events with
+
+	if (what & (POLLHUP|POLLERR))
+		what |= POLLIN|POLLOUT;
+	...
+	if (res == 0)
+		continue;
+
+POLLNVAL is not in that set, so a watched descriptor that has been closed
+produces res == 0 and is skipped, and nothing ever tells its owner.
+
+Second, and this is what actually spins: the poll array keeps slots whose
+events have all been cleared. Such a slot has neither POLLIN nor POLLOUT, so
+poll_dispatch() finds no r_ev and no w_ev to dispatch to -- but poll() still
+reports POLLNVAL on it if the descriptor is gone. poll() therefore returns
+immediately, dispatches nothing, and is called again. It never blocks again
+for the life of the process.
+
+Measured on the VAIO (2026-09-20), loading https://x.com/i/flow/login: the
+poll set holds 15 descriptors, six of them (0, 55, 60, 61, 63, 64) come back
+POLLNVAL, and strace catches 8357 poll() calls in six seconds, every one of
+them returning those same six. `top` shows NetworkService at 49.6% of a
+two-CPU machine with 4748 ms of each 5000 ms interval in the kernel -- in
+poll()'s own select_fd / create_sem_etc / delete_sem_internal machinery, which
+is expensive on Haiku because every call builds and tears down a semaphore and
+a select entry per descriptor. Half the machine is gone from ten seconds into
+the page load onwards. On a 1.33 GHz Atom that is the difference between a
+usable browser and one where typing a character into a text field does not
+show up inside a minute. about:blank never triggers it; it takes x.com's
+connection churn.
+
+Note that fd 0 is among them, which is the same descriptor the 2026-09-15
+`close(0)` bug closed underneath the browser. Something on Haiku closes
+descriptors this process still owns; the event loop has to survive that rather
+than melt.
+
+One Haiku detail matters for the first part: its poll() ORs
+POLLERR|POLLHUP|POLLNVAL into the caller's `events` field, so after the first
+call every slot has a non-zero `events` and "is anything still registered
+here?" has to be asked as "is POLLIN or POLLOUT set?". A first attempt at this
+patch tested `events != 0` and therefore did nothing at all.
+
+The fix is in two parts. Slots that nothing is watching are dropped before
+each poll: a slot any watcher actually holds always has POLLIN or POLLOUT, so
+this cannot drop a live one, and if the descriptor comes back poll_add()
+builds a fresh slot. And POLLNVAL now joins POLLHUP and POLLERR so that a
+watched descriptor which does go invalid reaches its owner, which closes it
+and unregisters it the ordinary way.
+
+Both are guarded on Haiku because that is where it was measured; upstream
+libevent has the same gap but nothing on Linux closes Chromium's descriptors
+behind its back.
+
+--- a/base/third_party/libevent/poll.c
++++ b/base/third_party/libevent/poll.c
+@@ -143,6 +143,47 @@
+ 	if (tv != NULL)
+ 		msec = tv->tv_sec * 1000 + (tv->tv_usec + 999) / 1000;
+ 
++#if defined(__HAIKU__)
++	/* Drop slots nothing is watching any more.
++	 *
++	 * poll() reports POLLNVAL, POLLERR and POLLHUP whether or not they
++	 * were asked for. A slot whose events have all been cleared has
++	 * neither POLLIN nor POLLOUT, so there is no r_ev or w_ev below to
++	 * dispatch to -- but if its descriptor has been closed it still comes
++	 * back POLLNVAL on every call, and this loop then spins for the life
++	 * of the process. A slot a watcher actually holds always has POLLIN
++	 * or POLLOUT, so nothing live is dropped here, and poll_add() builds
++	 * a fresh slot if the descriptor comes back.
++	 */
++	for (i = pop->nfds - 1; i >= 0; --i) {
++		struct pollfd *dead = &pop->event_set[i];
++
++		/* Haiku's poll() ORs POLLERR|POLLHUP|POLLNVAL into the
++		 * caller's events field, so "events != 0" is true of every
++		 * slot after the first call. Ask what this loop actually
++		 * means: is anyone watching for readability or writability?
++		 */
++		if (dead->events & (POLLIN|POLLOUT))
++			continue;
++
++		pop->idxplus1_by_fd[dead->fd] = 0;
++		--pop->nfds;
++		if (i != pop->nfds) {
++			/*
++			 * Shift the last pollfd down, as poll_del() does. The
++			 * entry moved in comes from above i, which this loop
++			 * has already looked at and kept.
++			 */
++			memcpy(&pop->event_set[i],
++			       &pop->event_set[pop->nfds],
++			       sizeof(struct pollfd));
++			pop->event_r_back[i] = pop->event_r_back[pop->nfds];
++			pop->event_w_back[i] = pop->event_w_back[pop->nfds];
++			pop->idxplus1_by_fd[pop->event_set[i].fd] = i + 1;
++		}
++	}
++#endif
++
+ 	nfds = pop->nfds;
+ 	res = poll(pop->event_set, nfds, msec);
+ 
+@@ -177,8 +218,16 @@
+ 		res = 0;
+ 
+ 		/* If the file gets closed notify */
++#if defined(__HAIKU__)
++		/* ... and if it is already gone, say so too, so that whoever
++		 * owns it finds out and unregisters it.
++		 */
++		if (what & (POLLHUP|POLLERR|POLLNVAL))
++			what |= POLLIN|POLLOUT;
++#else
+ 		if (what & (POLLHUP|POLLERR))
+ 			what |= POLLIN|POLLOUT;
++#endif
+ 		if (what & POLLIN) {
+ 			res |= EV_READ;
+ 			r_ev = pop->event_r_back[i];
