@@ -649,6 +649,61 @@ therefore ordinary Chromium C++ rather than Blink core, which is the part that
 runs at 0.2-0.4 edges per minute. Estimates made from inside Blink core are the
 pessimistic end, not the average.
 
+## Non-main threads get a 256 kB stack, and V8 runs off it (fixed 2026-09-20)
+
+x.com killed the renderer. The Haiku crash report said it plainly:
+
+	thread 508: Chrome_InProcRendererThread
+		state: Exception (Segment violation)
+		0x33454b1  Builtins_IncHandler + 0x11
+			Frame memory: Unavailable (Bad address)
+		0x3273740  Builtins_InterpreterEntryTrampoline + 0xc0
+		...         (several hundred more of the same frame)
+
+-- a JavaScript call chain deep enough to run off the stack, with the frame
+below the fault already unmapped.
+
+Haiku gives the main thread 64 MB (`USER_MAIN_THREAD_STACK_SIZE`) and every
+other thread 256 kB (`USER_STACK_SIZE`). V8 sets its own stack limit from
+`--stack-size`, about 1 MB by default, so its guard never fires on a 256 kB
+stack. `platform_thread_haiku.cc` returned 0 from
+`GetDefaultThreadStackSize()`, meaning "keep the platform default"; patch
+0090 returns 4 MB instead -- 4 rather than the 8 MB of the 64-bit ports
+because this is a 32-bit machine with 2 GB of RAM and content_shell runs ~40
+threads. Haiku commits stack pages on demand, so this costs address space,
+not memory. The arm64 port had the identical hole.
+
+After the fix the interpreter no longer overflows, but x.com still stops: the
+process now halts in `VizCompositorThread`, which is the same thread that the
+13:50 crash report from before any of these changes named. That one is
+untouched and still open.
+
+**Linking needs `util_linux_x86_devel`** for `libuuid`, and on this 2 GB
+machine `ld` gets killed by the low-memory handler (`signal 21 [Kill
+Thread]`) partway through. `-Wl,--no-keep-memory -Wl,--reduce-memory-overheads`
+with `-Wl,-O0` completes; plain `-Wl,-O2` with `--no-keep-memory` fails
+differently, with `.text is too large`.
+
+## Injecting keystrokes for a real test (2026-09-20)
+
+Verifying "can you type into the page" needs the keys to travel the road a
+real keyboard's do: input_server -> app_server -> the focused BWindow -> its
+focus view. Posting a BMessage straight at the window skips most of that and
+never reaches the page, which is why an earlier attempt proved nothing.
+
+An input_server *device* add-on enqueues events at the top of that road, so
+the browser cannot tell them from typing. Build it against
+`<add-ons/input_server/InputServerDevice.h>`, install into
+`~/config/non-packaged/add-ons/input_server/devices/`, restart input_server,
+and have a watcher thread read a file and `EnqueueMessage()` a `B_KEY_DOWN`
+and `B_KEY_UP` per character. The message needs `when`, `key` (the raw US
+keymap code), `modifiers`, `raw_char`, `byte`, `bytes` and `states`.
+Confirmed by typing `abc.x_9@y` into StyledEdit -- dots, underscores and `@`
+included.
+
+Killing input_server to reload the add-on also takes Deskbar and Tracker's
+window decorations with it; a reboot restores them.
+
 ## The GCC GC wrapper keeps `-j2` alive, and it made the build faster (2026-08-24)
 
 Page exhaustion, not the quota deadlock, is what was panicking the machine at

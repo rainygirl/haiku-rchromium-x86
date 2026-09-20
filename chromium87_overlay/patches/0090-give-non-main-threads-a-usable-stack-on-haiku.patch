@@ -1,0 +1,39 @@
+Haiku gives the main thread 64 MB (USER_MAIN_THREAD_STACK_SIZE) but every
+other thread 256 kB (USER_STACK_SIZE, 64 * B_PAGE_SIZE).  Chromium and V8 are
+written against the glibc default of 8 MB: V8 sets its own stack limit from
+--stack-size, which defaults to about 1 MB, so the interpreter happily
+recurses past the end of a 256 kB stack long before its own guard fires.
+
+On x.com that is exactly what happened.  The Haiku crash report for the
+renderer read:
+
+	thread 508: Chrome_InProcRendererThread
+		state: Exception (Segment violation)
+		0x33454b1  Builtins_IncHandler + 0x11
+			Frame memory: Unavailable (Bad address)
+		0x3273740  Builtins_InterpreterEntryTrampoline + 0xc0
+		...         (several hundred more of the same frame)
+
+-- a JavaScript call chain deep enough to run off the stack, with the frame
+below the fault already unmapped.
+
+Chromium already does this for the platforms whose default is too small:
+platform_thread_mac.mm returns 8 MB because macOS gives 512 kB, and iOS asks
+for 1 MB.  Haiku's 256 kB needs the same treatment; this port just never
+filled the hook in.
+
+4 MB rather than the 8 MB of the 64-bit ports: the target is a 32-bit machine
+with 2 GB of RAM, content_shell runs ~40 threads, and 4 MB still leaves V8's
+~1 MB limit a comfortable margin.  Haiku commits stack pages on demand, so
+this costs address space, not memory.
+
+--- a/base/threading/platform_thread_haiku.cc
++++ b/base/threading/platform_thread_haiku.cc
+@@ -1,6 +1,8 @@
+ size_t GetDefaultThreadStackSize(const pthread_attr_t& attributes) {
+-  return 0;
++  // Haiku's default for a non-main thread is USER_STACK_SIZE, 256 kB, which
++  // is far below what V8 assumes it may use before its own stack-limit check
++  // fires -- deep JavaScript recursion ran off the end instead of throwing.
++  return 4u * 1024 * 1024;
+ }
