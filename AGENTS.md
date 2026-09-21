@@ -814,6 +814,59 @@ POLLIN or POLLOUT set?". The first attempt at the patch tested `events != 0`,
 which is always true, and changed nothing -- the measurement afterwards looked
 exactly like no patch at all.
 
+## Typing into web pages: three layers, found one at a time (2026-09-21)
+
+"Typing into x.com freezes for a minute" turned out to be three separate
+faults stacked on each other. Each one had to be fixed before the next was
+visible, and each was measured rather than guessed.
+
+**1. The machine was half gone.** The POLLNVAL spin above. Fixed first because
+nothing else can be measured on a machine with one CPU in a kernel loop.
+
+**2. Keys never reached Blink at all.** With the spin gone, a test page said:
+
+	activeElement = i          <- Blink's own focus was right
+	NO KEY YET                 <- and no keydown ever arrived
+
+`SetContents` in `shell_platform_delegate_aura.cc` never focused the web
+contents. Upstream's aura delegate is the web-test one, where focus comes from
+the test runner; every configuration with a real window goes through
+`shell_platform_delegate_views`, which this port does not build. Clicking the
+page hid it, because `RenderWidgetHostViewEventHandler` calls
+`SetKeyboardFocus()` on mouse-down -- so this was invisible to anyone using a
+mouse, and total for anyone typing. The arm64 port hit exactly this on
+2026-09-19 and its fix ports over: focus the contents from `SetContents`, and
+retry on later turns of the loop, because `RenderWidgetHostViewAura::Focus()`
+does nothing until the view has a focus client and its window can take focus,
+and neither is settled while `SetContents` is still running. Chromium 87's
+`WebContents` has no `GetWeakPtr()`, so the liveness check across the retries
+is `Shell::windows()`.
+
+**3. The character never got inserted.** After (2), the page saw
+`KEYDOWN keyCode=73 key=i` and `document.hasFocus()=true` -- and three
+`KEYPRESS charCode=105` for one keystroke, with the field still empty.
+
+`InputMethodMinimal::DispatchKeyEvent()` already calls
+`GetTextInputClient()->InsertChar()` from the keystroke event when
+`event->GetCharacter()` is non-zero. Posting a second, character event on top
+of it is not redundant, it is wrong: three char events reached Blink and
+nothing was typed. One event per key.
+
+That event needs a DomKey, and **only when the keymap produced a character**.
+Filling in a DomCode and DomKey for every key -- deriving them from the key
+code, including for keys with no character -- stopped keydown reaching the
+page at all, a worse state than before the change. `haiku_beapi_views.cc` now
+sets both from the character and leaves them `NONE` otherwise, which is the
+shape the arm64 port uses.
+
+Two process notes, both learned the hard way here. The first attempt changed
+the keystroke event and added a character event in one edit, so when keydown
+disappeared there was no way to tell which half did it; splitting them took a
+whole build cycle to recover. And a `fprintf` in `DispatchKey` printing the
+type, key code, DomCode and character settled in one run what three rounds of
+reading the code had not: the BView receives every key correctly, so
+everything above is downstream of it.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
