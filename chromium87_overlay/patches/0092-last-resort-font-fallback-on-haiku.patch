@@ -27,6 +27,17 @@ Arial, Helvetica and Times onto the Noto families -- including strong
 unchanged, because Skia rejects a match whose family name differs from the one
 asked for. The fix has to name a family that is really installed.
 
+CORRECTION (2026-09-22, same day): this patch does not fix the collapsed
+line boxes, and the "ten or eleven hits become none" result quoted below was
+page-dependent noise that was reported as a success too early. Instrumenting
+`FontCache::GetFontPlatformData` showed why: *every* family lookup returns
+null on this port -- Arial, Helvetica, sans-serif, Sans, Times, Noto Sans,
+DejaVu Sans, and even Inter, which is the one family a font actually resolves
+to elsewhere. Adding more names to the last-resort list cannot help when no
+name resolves at all. The patch is kept because the list was wrong on its own
+terms -- Haiku has neither "Sans" nor "Arial" -- but the real fault is
+upstream of it and is still open.
+
 Noto is what `assets/rchromium-fonts.conf` points fontconfig at and what
 `install.sh` requires, so it is the right name here; DejaVu is tried after it
 for a machine that has one and not the other.
