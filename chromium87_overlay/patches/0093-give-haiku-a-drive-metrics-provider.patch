@@ -1,0 +1,29 @@
+Give Haiku a DriveMetricsProvider::HasSeekPenalty().
+
+`components/metrics/BUILD.gn` drops `drive_metrics_provider_linux.cc` on Haiku
+-- correctly, it reads `/sys/block` -- and puts nothing in its place, which
+leaves `DriveMetricsProvider::HasSeekPenalty()` undefined. That has been true
+since the file was first excluded and nobody noticed, because `--gc-sections`
+discards the section holding the reference before BFD ld has to resolve
+anything, and this build has never linked without `--gc-sections`.
+
+lld resolves symbols before it collects sections, so it says so:
+
+	ld.lld: error: undefined symbol:
+	  metrics::DriveMetricsProvider::HasSeekPenalty(base::FilePath const&, bool*)
+	>>> referenced by metrics_jumbo_2.cc
+	>>>   metrics/metrics_jumbo_2.o:(...GetDriveMetricsOnBackgroundThread(int))
+
+Fuchsia's file is exactly the stub this wants -- report "no seek penalty, and
+that answer is known" -- and Haiku already takes several other Fuchsia files
+for the same reason (idle_fuchsia.cc, select_file_dialog_fuchsia.cc). Nothing
+on this port reads the metric; content_shell has no metrics upload.
+
+--- a/components/metrics/BUILD.gn
++++ b/components/metrics/BUILD.gn
+@@ -194,6 +194,7 @@
+   if (is_haiku) {
+     sources -= [ "drive_metrics_provider_linux.cc" ]
++    sources += [ "drive_metrics_provider_fuchsia.cc" ]
+   }
+ }
