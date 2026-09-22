@@ -1044,9 +1044,36 @@ cost and wrong about where to look next: none of the fontconfig work above --
 the aliases, the cache directory, the last-resort list, the Skia probe -- could
 ever have mattered, because none of that code runs.
 
-The thing to fix is the `FcCharSetSubtractCount()` crash the comment
-describes. Restoring the bind is one word; what happens next is the question,
-and it is being measured now rather than reasoned about.
+The exclusion lives in patch
+`0079-guard-font-service-and-discardable-memory-on-haiku.patch`, which also
+carries an unrelated and still-wanted guard on
+`DiscardableSharedMemoryManager::Get()` returning null. Only the font half is
+in question.
+
+And the crash it names does not reproduce. `/boot/home/fctest2` is the
+standalone harness built on 2026-09-11 from Chromium's own `libfontconfig.a`
+plus its freetype, harfbuzz, libxml, ICU, zlib, libpng and brotli objects,
+entering fontconfig by the same `FcInit()` chain the crash backtrace showed.
+Run today against the current `rchromium-fonts.conf`:
+
+	fontconfig version: 21391
+	FcInit OK
+	system font set: 116 fonts
+	fonts carrying a langset: 116 of 116
+	done
+
+116 of 116 fonts get a langset -- which is `FcFreeTypeLangSet`, the frame the
+comment blames -- and nothing faults. That is consistent with what
+`docs/browser-ui-plan.md` recorded under "fontconfig was never the problem" on
+2026-09-11, and with the fact that `/boot/home/rchromium-fonts.conf` exists at
+all: the minimal config was written precisely because pointing the bundled
+fontconfig at Haiku's own `/boot/system/settings/fonts/fonts.conf` crashes in
+`FcCharSetSubtractCount`. The exclusion looks like a decision taken before
+that config existed and never revisited.
+
+So the measurement to make is simply to restore the bind and see. That build
+is running. Keep `fctest2`: it turns a font hypothesis from a forty-minute
+rebuild-and-link into three seconds.
 
 One thing found while reading for it, worth fixing on its own account:
 `third_party/fontconfig/include/config.h` is a Linux x86-64 configure result
