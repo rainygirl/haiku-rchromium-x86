@@ -82,6 +82,20 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 	#   RCHROMIUM_KEEP_GC  keep both
 	#   RCHROMIUM_GC_NO_O2 keep --gc-sections, drop -Wl,-O2
 	#
+	# Do not use the default. Dropping --gc-sections cannot produce a
+	# content_shell at all, whatever the machine's memory does:
+	#
+	#   metrics_jumbo_2.o: undefined reference to
+	#     `metrics::DriveMetricsProvider::HasSeekPenalty(base::FilePath const&, bool*)'
+	#
+	# components/metrics defines HasSeekPenalty only in its per-OS files and
+	# this port compiles none of them, so --gc-sections has always been what
+	# discards the section holding the reference before ld has to resolve it --
+	# exactly the protozero_plugin/`wait4' case described above, which was
+	# written down and then not applied to this branch. Four attempts on
+	# 2026-09-22 failed this way. RCHROMIUM_GC_NO_O2 is the usable low-memory
+	# setting; scripts/linkretry-verified.sh now ladders through it.
+	#
 	# --gc-sections pays for its reachability graph: without it the output is
 	# 172,967,599 bytes and ld was killed writing it out three times running;
 	# with it the intermediate is 141,635,463 and one attempt got all the way to
@@ -171,6 +185,12 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 
 	if [ "x${RCHROMIUM_NO_NKM:-}" = "x1" ]; then
 		exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--reduce-memory-overheads "$@"
+	fi
+	# RCHROMIUM_NO_RMO=1 keeps --no-keep-memory but drops --reduce-memory-overheads.
+	# Every link that corrupted the V8 embedded blob (stale rodata bytes written
+	# into .text from +0x1fcc on) carried both flags; this isolates which one.
+	if [ "x${RCHROMIUM_NO_RMO:-}" = "x1" ]; then
+		exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--no-keep-memory "$@"
 	fi
 	exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--no-keep-memory -Wl,--reduce-memory-overheads "$@"
 fi
