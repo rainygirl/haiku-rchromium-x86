@@ -210,21 +210,39 @@ Fonts: the system `NotoSans*` and `NotoSansCJKjp-VF.otf` under
 `/boot/system/data/fonts/{ttfonts,otfonts}` are what `rchromium-fonts.conf`
 lists; Hangul renders through the CJK face.
 
-### Link (on a freshly booted machine)
+### Link (with lld)
 
 ```sh
-sh /boot/home/linkretry-verified.sh        # log: /boot/home/linkretry-verified.log
+pkgman install llvm19_x86_lld              # once; lands at /boot/system/bin/ld.lld
+cd /boot/home/rchromium-chromium87-fast/chromium/out/rchromium_native
+PKG_CONFIG_PATH=/boot/system/develop/lib/x86/pkgconfig \
+PATH=/boot/home/config/non-packaged/bin-lowmem:$PATH \
+RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_LLD=1 RCHROMIUM_LINK_NICE=10 \
+    nice -n 10 ninja -C . -j1 content_shell
 ```
 
-Why this and not plain `ninja`: this machine's GNU ld 2.17 needs
-`--no-keep-memory --reduce-memory-overheads` to fit the 188 MB link in 2 GB at
-all, and with those flags it silently overwrites the interior of V8's 1 MB
-embedded-builtins blob with stale bytes from earlier inputs. The result renders
-static pages and takes SIGILL on the first JavaScript. The blob has no
-relocations, so the script repairs it by copying `embedded.o`'s `.text` back,
-then byte-verifies it against the object and only then keeps the binary as
-`/boot/home/content_shell.last-good`. Link right after a reboot: a heavy
-recompile beforehand leaves ld no memory and it is killed at ~141 MB of output.
+Use lld. It links on the first attempt where BFD ld was killed eight times
+running on 2026-09-22, it peaks at 1.05 GB against BFD's 1.9 GB, and it does
+not need `--no-keep-memory`, `--reduce-memory-overheads` or the embedded-blob
+repair -- the blob comes out byte-correct.
+
+That last part is not a convenience. Every BFD link of this target corrupts
+V8's 1 MB embedded-builtins blob -- 804,412 bytes wrong on one measured that
+afternoon -- and `repair_embedded_blob.py` patches it back from `embedded.o`.
+That repair was believed sufficient because the two gates pass afterwards. It
+is not: ten runs of x.com per binary, same page, same day, came out
+
+	BFD, blob repaired, 188 MB   ..X...XXXX   7 of 10 crashed
+	lld + --icf=all, 219 MB      ..........   0 of 10
+
+So a BFD-linked binary is wrong in ways the blob comparison and the zero-page
+scan do not look for, and the crash it produces looks like a bug in whatever
+code happens to run -- in this case a null dereference inside ICU's case
+mapper, which cost an afternoon of walking Unicode looking for a bad
+character. There was no bad character.
+
+`scripts/linkretry-verified.sh` and its ladder stay for a machine without the
+package. Both gates stay on principle. The wrapper takes `RCHROMIUM_LLD=1`.
 
 
 Then install with `install_to_desktop.sh` as described in `README.md`. The
