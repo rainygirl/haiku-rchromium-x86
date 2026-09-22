@@ -867,6 +867,39 @@ type, key code, DomCode and character settled in one run what three rounds of
 reading the code had not: the BView receives every key correctly, so
 everything above is downstream of it.
 
+### Where it stands, and the two things still wrong (2026-09-22)
+
+Measured with injected keystrokes and a page that mirrors what it receives
+into a `<p>`, because nothing in an editable element is painted (see below):
+
+	keydowns=5 last=o
+	ce mirror: [hello] len=5        <- contenteditable took the text
+	value mirror: [] len=0          <- the same keys into an <input>
+
+**The keyboard road is open.** input_server -> app_server -> BView ->
+`DispatchKey` -> ozone -> the input method -> Blink -> inserted text. An
+`fprintf` in `DispatchKey` confirms the view gets every key with the right
+code and character.
+
+**Two defects remain, and neither is about keys.**
+
+*Text form controls do not take typed text.* `<input>` and `<textarea>` see
+the keydowns and the keypresses, and their value stays empty, while a
+`contenteditable` div on the same page takes them. `execCommand("insertText")`
+does reach an `<input>` -- it returned true and the value changed -- so the
+editing machinery works and it is the keypress default action that does not
+land there. `window.getSelection()` after `i.focus()` reports its anchor as
+BODY rather than anything inside the control.
+
+*Nothing in an editable element is painted.* The `contenteditable` div holds
+"hello" and renders as an empty box. An `<input>` with its value set from
+JavaScript renders empty too, and measures 622x14 -- 14 pixels tall for a 22px
+font with 5px of padding, with or without an explicit font-family. Ordinary
+`<p>` text on the same page paints correctly. Worth trying against the font
+fallback gap above: `getComputedStyle` says the default form-control font is
+Arial, which this machine does not have and `GetLastResortFallbackFont()`
+cannot resolve.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
