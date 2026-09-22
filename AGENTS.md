@@ -88,12 +88,14 @@ phone/Google/Apple buttons and the email field, from the binary installed by
 thread-stack fix (patch 0090), a relink through
 `scripts/linkretry-verified.sh`, and restoring
 `/boot/home/rchromium-fonts.conf`; the section below has the whole story.
-Web fonts still do not load -- `remote_font_face_source.cc(356)` and
-`computed_style.cc(1683)` `NOTREACHED()` both say
-`GetLastResortFallbackFont()` returned null -- so pages render in Noto rather
-than their own typeface. Adding Arial/Times/Courier aliases to the fontconfig
-file does not change it; the cause is further in, and this is the next thing
-to look at.
+2026-09-22: **text form controls work.** `https://x.com/i/flow/login` renders
+the whole login card and takes typed text into "Email or username", caret,
+floating label and all. What had looked like a keyboard bug was one line in
+patch 0079: the mojo font service was left unbound on Haiku, so every font
+family lookup in the renderer was a call into nothing, every line box was
+zero-height, and an `<input>` was padding and border around nothing. See
+"Every font family lookup fails" below for the whole chain and for how the
+probe that settled it did so by printing nothing at all.
 
 ## Physical Haiku machine
 
