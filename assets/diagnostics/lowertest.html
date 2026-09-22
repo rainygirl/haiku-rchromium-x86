@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>toLowerCase walk</title></head>
+<body><h1>toLowerCase walk</h1><p id="s">starting</p>
+<script>
+// Walk the BMP one code point at a time through String.prototype.toLowerCase.
+//
+// The x.com crash is a SIGSEGV at address 0 inside ICU's appendResult(),
+// reached from u_strToLower via V8's Runtime_StringToLowerCaseIntl. V8 only
+// takes that path for a string that is not all one-byte, so the character
+// decides whether it happens -- which is why a site that receives different
+// bytes every load crashes about half the time and a fixed page might not
+// crash at all.
+//
+// Record the last code point that came back before trying the next one, so
+// the process dying names the one that killed it. Writing it into the title
+// as well as the page means a screenshot is enough to read the answer.
+var cp = 0x80;
+var done = 0;
+function step() {
+  var end = Math.min(cp + 256, 0x10000);
+  while (cp < end) {
+    try {
+      var s = String.fromCharCode(cp);
+      s.toLowerCase();
+      s.toUpperCase();
+      // Also in a longer string, since ICU's buffer handling depends on it.
+      ('aaaa' + s + 'bbbb').toLowerCase();
+    } catch (e) { }
+    done = cp;
+    cp++;
+  }
+  var msg = 'last ok U+' + done.toString(16).toUpperCase() +
+            ' next U+' + cp.toString(16).toUpperCase();
+  document.getElementById('s').textContent = msg;
+  document.title = msg;
+  if (cp < 0x10000) setTimeout(step, 0);
+  else { document.title = 'ALL DONE ' + msg; 
+         document.getElementById('s').textContent = 'ALL DONE ' + msg; }
+}
+setTimeout(step, 100);
+</script>
+</body></html>

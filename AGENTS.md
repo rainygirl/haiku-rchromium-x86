@@ -1145,6 +1145,58 @@ cycles. And read every return path in a function before putting a probe at the
 bottom of it -- `CreateTypeface()` returns early in a branch that was never
 read, so a probe on its last line printed nothing and was misread the same way.
 
+## x.com still crashes half the time, in ICU's case mapper (open, 2026-09-22)
+
+With the fonts fixed, ten runs of `https://x.com/i/flow/login` on the
+installed binary (`scripts/xrun.sh`, 70 s each, keystrokes injected at the
+end):
+
+	..X...XXXX    5 of 10 crashed
+
+Every crash is `Received signal 11 SEGV_MAPERR 000000000000` and, in all
+three that were symbolised, the same stack:
+
+	#3   icu_67::(anonymous namespace)::appendResult(...)
+	#4   icu_67::(anonymous namespace)::toLower(...)
+	#5   ustrcase_internalToLower_67
+	#7   u_strToLower_67
+	#8   v8::internal::LocaleConvertCase(Isolate*, Handle<String>, bool, const char*)
+	#10  v8::internal::Runtime_StringToLowerCaseIntl
+	#12  Builtins_StringToLowerCaseIntl
+	#13  Builtins_StringPrototypeToLowerCaseIntl
+	#14-32  Builtins_InterpreterEntryTrampoline x19, with ArrayReduce among them
+	#33  Builtins_PromiseFulfillReactionJob
+	#34  Builtins_RunMicrotasks
+	#40  blink::V8ScriptRunner::CallFunction
+	#47  blink::XMLHttpRequestProgressEventThrottle::DispatchReadyStateChangeEvent
+	#49  blink::XMLHttpRequest::EndLoading
+	#55  blink::ResourceLoader::DidFinishLoading
+
+So: a page script calls `String.prototype.toLowerCase()` while handling an
+XHR completion, and ICU faults on a null pointer. It is on
+`Chrome_InProcRendererThread`, not the main thread.
+
+Why it looks intermittent: V8 only reaches `LocaleConvertCase` for a string
+that is **not** all one-byte (`Intl::ConvertToLower` has a fast path for
+ASCII), so whether it happens depends on what bytes the site sent this time.
+That is also why no local page has reproduced it yet.
+
+Ruled out so far:
+
+- *Not one bad character.* `assets/diagnostics/lowertest.html` walks
+  U+0080..U+FFFF one code point at a time through `toLowerCase()`,
+  `toUpperCase()` and a padded string, reporting the last one that returned.
+  It reaches `ALL DONE last ok U+FFFF` with no crash.
+
+Being measured now: whether the stack depth is the variable. Patch 0090
+already found one crash with this shape -- hundreds of stacked
+`InterpreterEntryTrampoline` frames running off Haiku's 256 kB non-main
+thread stack -- and fixed it by returning 4 MB from
+`GetDefaultThreadStackSize()`. `scripts/xarm.sh` runs baseline against
+`--js-flags=--stack-size=256` interleaved, ten each. If lowering V8's own
+limit well under the thread's stack changes the rate, then either that fix is
+not reaching this thread or 4 MB is not what it gets.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
