@@ -198,8 +198,9 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 	# it is a different linker rather than the same one asked more nicely: it
 	# does not build BFD's whole-program section graph the same way and it has
 	# none of that --no-keep-memory path's history of writing stale bytes into
-	# the output. Pass the driver flag, e.g.
-	# RCHROMIUM_LLD=/boot/system/bin/x86/ld.lld.
+	# the output. Set RCHROMIUM_LLD=1; the driver finds ld.lld on PATH
+	# (pkgman install llvm19_x86_lld puts it at /boot/system/bin/ld.lld, and
+	# -fuse-ld= takes a linker name, not a path).
 	#
 	# Two things to watch when trying it. -Wl,--fatal-warnings is on this line,
 	# and lld warns about things BFD does not, so the first attempt may fail on
@@ -217,7 +218,12 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 			esac
 			shift
 		done
-		exec $NICE "$REAL" -L"$UUID_LIB" -fuse-ld="${RCHROMIUM_LLD}" "$@"
+		# -z notext: ffmpeg's hand-written x86 assembly takes R_386_32
+		# relocations against ff_h264_cabac_tables, which BFD accepts in a
+		# non-PIE executable and lld refuses by default. Haiku's loader
+		# handles text relocations, so allow them rather than rebuild
+		# ffmpeg.
+		exec $NICE "$REAL" -L"$UUID_LIB" -fuse-ld=lld -Wl,-z,notext "$@"
 	fi
 
 	# RCHROMIUM_PLAIN=1 drops both memory flags and keeps everything else this
