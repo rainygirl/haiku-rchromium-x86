@@ -46,7 +46,14 @@ for i in 1 2 3 4 5 6; do
     PATH=/boot/home/config/non-packaged/bin-lowmem:$PATH \
     RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=$KEEP RCHROMIUM_LINK_NICE=10 \
         ninja -C . -j1 content_shell >> "$LOG" 2>&1
-    if [ -f "$OUT/content_shell" ] && head -c 4 "$OUT/content_shell" | grep -q ELF; then
+    rc=$?
+    # ninja's exit status matters. Without this the script looked at the
+    # binary from the *previous* run, found it valid, and reported SUCCESS
+    # after a compile error -- which on 2026-09-22 meant an hour of measuring
+    # a stale binary and believing the source had been rebuilt.
+    if [ "$rc" != 0 ]; then
+        printf '=== attempt %s: ninja exited %s\n' "$i" "$rc" >> "$LOG"
+    elif [ -f "$OUT/content_shell" ] && head -c 4 "$OUT/content_shell" | grep -q ELF; then
         if ! python3 /boot/home/verify_embedded_blob.py "$OUT/content_shell" >> "$LOG" 2>&1; then
             printf '=== attempt %s: blob corrupt, repairing from embedded.o\n' "$i" >> "$LOG"
             python3 /boot/home/repair_embedded_blob.py "$OUT/content_shell" >> "$LOG" 2>&1
