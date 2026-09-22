@@ -999,15 +999,67 @@ What has been ruled out, each by measurement rather than argument:
 - *Not font metrics.* Where a font does resolve the metrics are right:
   `size=20 rawAsc=-19.375 rawDesc=4.82422 -> ascent=19 descent=5 fam=Inter`.
 
-So the failure is inside `SkFontConfigInterfaceDirect::matchFamilyName()`
-(`third_party/skia/src/ports/SkFontConfigInterface_direct.cpp`), which has two
-ways to fail: `FcFontSort()` returning an empty set, or `MatchFont()` rejecting
-every candidate through its family-name-equality rule. A probe printing which
-of the two it is was written and compiled but never got linked -- the VAIO's
-low-memory linker killed six attempts in a row. **That probe is the next step,
-and it should split the remaining problem in one run:** an empty sort is a
-fontconfig configuration fault, a rejecting `MatchFont` is Skia's strict
-substitute check and wants a different fix entirely.
+### The probe was silent, and the silence was the answer (2026-09-22)
+
+The paragraph this replaces said the failure was inside
+`SkFontConfigInterfaceDirect::matchFamilyName()` and that a probe would split
+it into "an empty `FcFontSort`" or "a rejecting `MatchFont`". The probe finally
+linked and printed **neither**, in a run where `font_cache_skia.cc`'s own
+`LOG(ERROR)` lines came out fine, so the logging works and the function is
+simply never called. fontconfig is not involved at all.
+
+`skia::CreateDefaultSkFontMgr()` builds its `SkFontMgr` from
+`SkFontConfigInterface::RefGlobal()`, and on this platform that global is not
+the direct implementation. `RendererBlinkPlatformImpl`'s constructor
+(`content/renderer/renderer_blink_platform_impl.cc:172`) sets it, under a guard
+this port already widened to include Haiku:
+
+	#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_HAIKU)
+	  RenderThreadImpl::current()->BindHostReceiver(
+	      font_service.InitWithNewPipeAndPassReceiver());
+	  font_loader_ = sk_make_sp<font_service::FontLoader>(...);
+	  SkFontConfigInterface::SetGlobal(font_loader_);
+	#endif
+
+So every family lookup is a mojo call to the font service. And the browser
+side of that pipe is not connected -- by this port's own decision, thirteen
+lines above the bind in
+`content/browser/renderer_host/render_process_host_impl.cc:1330`:
+
+	// Haiku is excluded deliberately, for now. ConnectToFontService()
+	// constructs a FontServiceApp, which brings up the bundled fontconfig,
+	// and that crashes on this platform inside FcFreeTypeLangSet():
+	// FcCharSetSubtractCount() faults partway through iterating the charset
+	// built from a font file...
+
+	#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+	  if (auto font_receiver = receiver.As<font_service::mojom::FontService>())
+
+**That is the whole fault.** The renderer asks for a `FontService`, the
+browser declines to bind it, `FontLoader` fails every call, `SkFontMgr` has
+nothing to answer with, every family resolves to null, `GetFontHeight()` takes
+its `NOTREACHED()`, every line box is zero-height and an `<input>` collapses to
+padding around nothing. The note calling it "a real loss" was right about the
+cost and wrong about where to look next: none of the fontconfig work above --
+the aliases, the cache directory, the last-resort list, the Skia probe -- could
+ever have mattered, because none of that code runs.
+
+The thing to fix is the `FcCharSetSubtractCount()` crash the comment
+describes. Restoring the bind is one word; what happens next is the question,
+and it is being measured now rather than reasoned about.
+
+One thing found while reading for it, worth fixing on its own account:
+`third_party/fontconfig/include/config.h` is a Linux x86-64 configure result
+and says `SIZEOF_VOID_P 8`, `ALIGNOF_VOID_P 8`, `ALIGNOF_DOUBLE 8` in a
+32-bit build. `fcarch.h` turns that into `FC_ARCHITECTURE "le64"`, which is
+why this port's cache files are named `...-le64.cache-7` -- a 32-bit process
+claiming a 64-bit architecture tag. `src/src/fcarch.c`, whose entire contents
+are static assertions that would catch this
+(`0x08 + 2*SIZEOF_VOID_P == sizeof (FcCharSet)`), is not in Chromium's source
+list, so nothing checks it. It is consistent with itself as long as only this
+build writes that directory, so it is not obviously the crash -- but a
+fontconfig that is wrong about its own pointer size is not a good place to
+start looking for corrupt `FcCharSet` internals.
 
 Two notes on method, both learned expensively here. Instrument with
 `LOG(ERROR)`, not `fprintf`: a raw `fprintf` from Blink does not reach the
