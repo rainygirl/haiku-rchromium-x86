@@ -183,6 +183,21 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 		NICE="nice -n ${RCHROMIUM_LINK_NICE}"
 	fi
 
+	# RCHROMIUM_PLAIN=1 drops both memory flags and keeps everything else this
+	# branch does -- the nice(1) wrapper, the -L for libuuid, and whatever
+	# --gc-sections/-Wl,-O2 setting was chosen above.
+	#
+	# It exists because "neither flag" is the only configuration that has never
+	# produced a corrupt binary, and the reason it was abandoned no longer
+	# holds. It was ruled out when the machine had 2 GB of swap and ld was
+	# killed at ~141 MB of output; there are 8 GB now, and nice(1) has since
+	# been shown to matter more than either flag. Every link that corrupted the
+	# embedded blob or wrote zero pages into .rodata carried --no-keep-memory
+	# and --reduce-memory-overheads, so if this one survives, it is the setting
+	# to keep rather than a fallback.
+	if [ "x${RCHROMIUM_PLAIN:-}" = "x1" ]; then
+		exec $NICE "$REAL" -L"$UUID_LIB" "$@"
+	fi
 	if [ "x${RCHROMIUM_NO_NKM:-}" = "x1" ]; then
 		exec $NICE "$REAL" -L"$UUID_LIB" -Wl,--reduce-memory-overheads "$@"
 	fi

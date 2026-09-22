@@ -55,18 +55,31 @@ for i in 1 2 3 4 5 6; do
     # go last, because scripts/resolve_haiku_stack.py needs .symtab to turn a
     # Haiku backtrace into names -- a stripped binary is worth having only when
     # the alternative is no binary.
-    KEEP=1 NOO2= NOBUILDID= STRIP=
+    #
+    # Attempts 3 to 5 stop asking ld to economise at all. --no-keep-memory and
+    # --reduce-memory-overheads are on every link that has ever come out
+    # damaged -- the embedded blob on many of them, and on 2026-09-22 four
+    # consecutive zero pages written over net::kPreloadedHSTSData in .rodata,
+    # twice, after the blob had been repaired and verified. "Neither flag" is
+    # the only setting that has never produced a corrupt binary. It was dropped
+    # because ld was killed at ~141 MB of output -- on a machine with 2 GB of
+    # swap, before nice(1), which has since turned out to matter more than
+    # either flag. Worth the two attempts, because a link that has to be
+    # discarded is no cheaper than one that dies.
+    KEEP=1 NOO2= NOBUILDID= STRIP= PLAIN=
     case "$i" in
-        1|2) DESC="--gc-sections and -Wl,-O2 kept" ;;
-        3|4) NOO2=1; KEEP=; DESC="dropping -Wl,-O2" ;;
-        5)   NOO2=1; KEEP=; NOBUILDID=1; DESC="dropping -Wl,-O2 and --build-id" ;;
+        1|2) DESC="--gc-sections and -Wl,-O2 kept, ld economising" ;;
+        3|4) PLAIN=1; DESC="no --no-keep-memory, no --reduce-memory-overheads" ;;
+        5)   PLAIN=1; NOBUILDID=1
+             DESC="neither memory flag, dropping --build-id" ;;
         *)   NOO2=1; KEEP=; NOBUILDID=1; STRIP=1
-             DESC="dropping -Wl,-O2 and --build-id, stripping" ;;
+             DESC="ld economising, dropping -Wl,-O2 and --build-id, stripping" ;;
     esac
     printf '=== attempt %s: %s\n' "$i" "$DESC" >> "$LOG"
     PKG_CONFIG_PATH=/boot/system/develop/lib/x86/pkgconfig \
     PATH=/boot/home/config/non-packaged/bin-lowmem:$PATH \
     RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=$KEEP RCHROMIUM_GC_NO_O2=$NOO2 \
+    RCHROMIUM_PLAIN=$PLAIN \
     RCHROMIUM_NO_BUILDID=$NOBUILDID RCHROMIUM_STRIP=$STRIP \
     RCHROMIUM_LINK_NICE=10 \
         ninja -C . -j1 content_shell >> "$LOG" 2>&1
