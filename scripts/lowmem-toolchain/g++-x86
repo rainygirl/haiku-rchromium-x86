@@ -223,7 +223,15 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 		# non-PIE executable and lld refuses by default. Haiku's loader
 		# handles text relocations, so allow them rather than rebuild
 		# ffmpeg.
-		exec $NICE "$REAL" -L"$UUID_LIB" -fuse-ld=lld -Wl,-z,notext "$@"
+		# --icf=all folds identical functions; Chromium supports it
+		# upstream (use_icf) and it is worth a lot on a tree this size.
+		# -z noseparate-code stops lld padding each code segment out to a
+		# page boundary of its own. Both matter here beyond the disk: lld's
+		# first output was 235 MB against BFD's 188 MB, and on a 2 GB
+		# machine the extra 47 MB showed up as x.com dying in
+		# WTF::Partitions::HandleOutOfMemory while decoding a script.
+		exec $NICE "$REAL" -L"$UUID_LIB" -fuse-ld=lld -Wl,-z,notext \
+			-Wl,--icf=all -Wl,-z,noseparate-code "$@"
 	fi
 
 	# RCHROMIUM_PLAIN=1 drops both memory flags and keeps everything else this
