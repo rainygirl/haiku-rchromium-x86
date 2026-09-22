@@ -1,0 +1,70 @@
+Give the last-resort font fallback a family Haiku actually has.
+
+`FontCache::GetLastResortFallbackFont()` tries the generic family, then "Sans",
+then "Arial". Haiku has none of them, and the function returning null is not a
+cosmetic failure. Without a last resort, `FontFallbackList` has no primary
+font, `ComputedStyle::GetFontHeight()` takes its `NOTREACHED()` and returns a
+zero `FontHeight`, and every line box on the page collapses to nothing.
+
+What that looks like, measured on the VAIO (2026-09-22):
+
+	<span> at 22px            162x0      height zero
+	<input> at 22px, pad 5    294x14     = 0 + 10 padding + 4 border
+	the same with line-height:30px   294x44
+	the same with height:40px        294x54
+
+So a text form control is padding and border around a zero-height inner
+editor: it cannot show its value, typed characters go nowhere visible, and
+`<pre>` lines draw on top of each other because every line box is at the same
+y. Chasing this as "typing does not work" cost most of a day; the give-away is
+that naming an explicit `line-height` restores the box, which says the
+font-derived height is what is missing. `computed_style.cc(1683)` fires ten or
+eleven times on a page with a handful of elements.
+
+Note that a fontconfig alias does not fix it. Substitution rules mapping
+Arial, Helvetica and Times onto the Noto families -- including strong
+`binding="same"` edits, not just `<alias><prefer>` -- left the measurements
+unchanged, because Skia rejects a match whose family name differs from the one
+asked for. The fix has to name a family that is really installed.
+
+Noto is what `assets/rchromium-fonts.conf` points fontconfig at and what
+`install.sh` requires, so it is the right name here; DejaVu is tried after it
+for a machine that has one and not the other.
+
+--- a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
++++ b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
+@@ -137,6 +137,34 @@
+     font_platform_data = GetFontPlatformData(description, arial_creation_params,
+                                              AlternateFontName::kLastResort);
+   }
++#if defined(OS_HAIKU)
++  // Neither "Sans" nor "Arial" exists on Haiku, and this function returning
++  // null is not a cosmetic failure: FontFallbackList has no primary font,
++  // ComputedStyle::GetFontHeight() takes its NOTREACHED() and returns a zero
++  // FontHeight, and every line box on the page collapses. Measured on the
++  // VAIO: a 22px <span> reports height 0, a 22px <input> reports 294x14 --
++  // padding and border with a zero-height inner editor -- so form controls
++  // cannot be seen or typed into, and <pre> lines draw on top of each other.
++  //
++  // Name a family this machine actually has. The installer requires the Noto
++  // set (assets/rchromium-fonts.conf points fontconfig at
++  // /boot/system/data/fonts), so if this misses there is nothing left to try.
++  if (!font_platform_data) {
++    DEFINE_THREAD_SAFE_STATIC_LOCAL(const FontFaceCreationParams,
++                                    noto_creation_params,
++                                    (AtomicString("Noto Sans")));
++    font_platform_data = GetFontPlatformData(description, noto_creation_params,
++                                             AlternateFontName::kLastResort);
++  }
++  if (!font_platform_data) {
++    DEFINE_THREAD_SAFE_STATIC_LOCAL(const FontFaceCreationParams,
++                                    dejavu_creation_params,
++                                    (AtomicString("DejaVu Sans")));
++    font_platform_data = GetFontPlatformData(
++        description, dejavu_creation_params, AlternateFontName::kLastResort);
++  }
++#endif
++
+ #if defined(OS_WIN)
+   // Try some more Windows-specific fallbacks.
+   if (!font_platform_data) {
