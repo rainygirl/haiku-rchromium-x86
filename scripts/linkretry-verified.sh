@@ -16,15 +16,35 @@
 # .rodata, 59 of them over the blob, and x.com then crashed reading zeros out
 # of Builtins_JSEntry. scan_zero_pages.py is the second gate, and it covers the
 # damage the blob comparison cannot see.
+#
+# RCHROMIUM_LINK_NICE: what kills ld here is the low-resource manager firing
+# when free pages go critical, not ld's own peak -- the wrapper's comments say
+# so and this run proved it again, five attempts killed with signal 21 on a
+# machine with 1.5 GB free. ld at full speed dirties pages faster than the page
+# writer flushes them. Running it at a lower priority does not lower the peak;
+# it gives the writer room. Without this the link only went through right after
+# a reboot.
 OUT=/boot/home/rchromium-chromium87-fast/chromium/out/rchromium_native
 LOG=/boot/home/linkretry-verified.log
 : > "$LOG"
 for i in 1 2 3 4 5 6; do
     printf '=== attempt %s starting %s\n' "$i" "$(date)" >> "$LOG"
     cd "$OUT" || exit 1
+    # Attempts 1 and 2 keep --gc-sections and -Wl,-O2, which give the smaller
+    # binary. They are also what makes ld's peak too big for this machine once
+    # it has been up a while: six consecutive attempts were killed at 09:48 on
+    # 2026-09-21 with nice(1) already in play. From attempt 3 the wrapper
+    # strips both -- its own comments record that dropping them is what
+    # produced a finished binary -- rather than waiting for a reboot.
+    if [ "$i" -le 2 ]; then
+        KEEP=1
+    else
+        KEEP=
+        printf '=== attempt %s: dropping --gc-sections and -Wl,-O2\n' "$i" >> "$LOG"
+    fi
     PKG_CONFIG_PATH=/boot/system/develop/lib/x86/pkgconfig \
     PATH=/boot/home/config/non-packaged/bin-lowmem:$PATH \
-    RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=1 \
+    RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=$KEEP RCHROMIUM_LINK_NICE=10 \
         ninja -C . -j1 content_shell >> "$LOG" 2>&1
     if [ -f "$OUT/content_shell" ] && head -c 4 "$OUT/content_shell" | grep -q ELF; then
         if ! python3 /boot/home/verify_embedded_blob.py "$OUT/content_shell" >> "$LOG" 2>&1; then

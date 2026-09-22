@@ -57,6 +57,8 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
+#include "ui/events/keycodes/dom/dom_key.h"
+#include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/platform_window/platform_window_delegate.h"
 
@@ -302,32 +304,42 @@ void HaikuContentView::DispatchKey(EventType type,
   }
 
   const int flags = EventFlagsFromHaiku(modifiers, 0);
-  const KeyboardCode key_code = KeyboardCodeFromHaiku(raw_char, raw_key);
+  KeyboardCode key_code = KeyboardCodeFromHaiku(raw_char, raw_key);
 
-  // DomCode and DomKey are deliberately left unset for this first pass. That
-  // is enough for shortcuts and for the character path below, but it is why
-  // layout-dependent behaviour and IME are still listed as follow-up work.
-  Post(std::make_unique<KeyEvent>(type, key_code, flags, EventTimeForNow()));
+  // One event per key, and the DomCode and DomKey only when the keymap
+  // produced a character.
+  //
+  // Two mistakes were made here before this shape settled. Posting a separate
+  // character event on top of the keystroke made Blink see three keypresses
+  // for one key and insert nothing: InputMethodMinimal already calls
+  // InsertChar() from the keystroke event, so the extra event is not just
+  // redundant, it is wrong. And filling in a DomCode and DomKey for keys with
+  // no character -- deriving them from the key code for everything -- stopped
+  // keydown reaching the page at all. Leaving both NONE there keeps the path
+  // that works.
+  DomCode dom_code = DomCode::NONE;
+  DomKey dom_key = DomKey::NONE;
+  base::char16 character = 0;
 
-  if (type != ET_KEY_PRESSED || bytes == nullptr || num_bytes <= 0)
-    return;
+  // The character is skipped while a shortcut modifier is held, so that Alt+C
+  // does not also type a "c", and for the control range, so that Return and
+  // Backspace stay commands.
+  if (bytes != nullptr && num_bytes > 0 &&
+      (flags & (EF_CONTROL_DOWN | EF_ALT_DOWN | EF_COMMAND_DOWN)) == 0) {
+    const base::string16 text =
+        base::UTF8ToUTF16(std::string(bytes, static_cast<size_t>(num_bytes)));
+    if (!text.empty() && text[0] >= 0x20 && text[0] != 0x7f)
+      character = text[0];
+  }
+  if (character != 0) {
+    dom_key = DomKey::FromCharacter(character);
+    dom_code = UsLayoutKeyboardCodeToDomCode(key_code);
+    if (key_code == VKEY_UNKNOWN)
+      key_code = DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
+  }
 
-  // Deliver the text separately. Skip it when a shortcut modifier is held, or
-  // Alt+C would both copy and type a character, and skip the control range so
-  // that Return and Backspace do not insert anything.
-  if ((flags & EF_CONTROL_DOWN) != 0)
-    return;
-
-  const base::string16 text =
-      base::UTF8ToUTF16(std::string(bytes, static_cast<size_t>(num_bytes)));
-  if (text.empty())
-    return;
-  const base::char16 character = text[0];
-  if (character < 0x20 || character == 0x7f)
-    return;
-
-  Post(std::make_unique<KeyEvent>(character, key_code, DomCode::NONE, flags,
-                                 EventTimeForNow()));
+  Post(std::make_unique<KeyEvent>(type, key_code, dom_code, flags, dom_key,
+                                  EventTimeForNow()));
 }
 
 void HaikuContentView::KeyDown(const char* bytes, int32 num_bytes) {

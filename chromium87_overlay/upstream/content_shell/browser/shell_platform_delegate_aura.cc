@@ -365,6 +365,60 @@ void ShellPlatformDelegate::CleanUp(Shell* shell) {
   shell_data_map_.erase(shell);
 }
 
+#if defined(OS_HAIKU)
+namespace {
+
+void FocusContentsSoon(Shell* shell, int attempts_left);
+
+// Is this Shell still open? Chromium 87's WebContents has no GetWeakPtr(), and
+// the retry below outlives the call that starts it, so the liveness check is
+// the shell list the content shell already keeps.
+bool ShellIsAlive(Shell* shell) {
+  for (Shell* open : Shell::windows()) {
+    if (open == shell)
+      return true;
+  }
+  return false;
+}
+
+// Focus the page, retrying on later turns of the loop while there is still
+// nothing focusable. RenderWidgetHostViewAura::Focus() is a no-op until the
+// view has a focus client and its window can take focus, and the view itself
+// is created and shown asynchronously, so the first attempt -- made from
+// SetContents -- routinely comes too early.
+void FocusContentsNow(Shell* shell, int attempts_left) {
+  if (!ShellIsAlive(shell))
+    return;
+  WebContents* web_contents = shell->web_contents();
+  if (web_contents == nullptr)
+    return;
+  RenderWidgetHostView* view = web_contents->GetRenderWidgetHostView();
+  if (view != nullptr && view->HasFocus())
+    return;
+  web_contents->Focus();
+  view = web_contents->GetRenderWidgetHostView();
+  if (view != nullptr && view->HasFocus())
+    return;
+  if (attempts_left <= 0) {
+    fprintf(stderr, "[RCH] web contents never took focus; view=%p\n",
+            static_cast<void*>(view));
+    return;
+  }
+  FocusContentsSoon(shell, attempts_left - 1);
+}
+
+void FocusContentsSoon(Shell* shell, int attempts_left) {
+  // Spread the retries over real time: what is being waited for is the view's
+  // creation and the host window's Show(), and posting without a delay would
+  // burn every attempt in the same millisecond.
+  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE, base::BindOnce(&FocusContentsNow, shell, attempts_left),
+      base::TimeDelta::FromMilliseconds(50));
+}
+
+}  // namespace
+#endif  // defined(OS_HAIKU)
+
 void ShellPlatformDelegate::SetContents(Shell* shell) {
   aura::Window* content = shell->web_contents()->GetNativeView();
 #if defined(OS_HAIKU)
@@ -398,6 +452,20 @@ void ShellPlatformDelegate::SetContents(Shell* shell) {
   fprintf(stderr, "[RCH] SetContents: visibility before=%d\n",
           static_cast<int>(shell->web_contents()->GetVisibility()));
   shell->web_contents()->WasShown();
+
+  // Nothing focuses the contents in this configuration: the aura delegate is
+  // upstream's web-test one, where focus arrives from the test runner, and
+  // the only local focus client is the shell's own. Until the page was
+  // clicked, document.hasFocus() was false and every key was dropped -- the
+  // click works because RenderWidgetHostViewEventHandler calls
+  // SetKeyboardFocus() on mouse-down. On a machine driven by injected
+  // keystrokes there is no click, and nothing could be typed at all.
+  //
+  // Focusing right here is not enough: WebContentsViewAura::Focus() reaches
+  // RenderWidgetHostViewAura::Focus(), which does nothing unless the view
+  // already has a focus client and its window can take focus, and neither is
+  // settled while SetContents is still running.
+  FocusContentsSoon(shell, 30);
 #endif
 }
 
