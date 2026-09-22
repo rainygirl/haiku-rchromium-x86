@@ -21,9 +21,20 @@ on this port reads the metric; content_shell has no metrics upload.
 
 --- a/components/metrics/BUILD.gn
 +++ b/components/metrics/BUILD.gn
-@@ -194,6 +194,7 @@
+@@ -191,7 +191,16 @@
+     sources += [ "drive_metrics_provider_fuchsia.cc" ]
+   }
    if (is_haiku) {
++    # drive_metrics_provider_linux.cc reads /sys/block, which Haiku does not
++    # have. Dropping it on its own left
++    # DriveMetricsProvider::HasSeekPenalty() undefined -- a link error that
++    # only --gc-sections was hiding, because the section that referenced it
++    # was unreachable and BFD discards before it resolves. lld resolves first
++    # and says so. Fuchsia's file is the stub this wants: report "no seek
++    # penalty, and that answer is known". Haiku already takes several other
++    # Fuchsia files for the same reason.
      sources -= [ "drive_metrics_provider_linux.cc" ]
 +    sources += [ "drive_metrics_provider_fuchsia.cc" ]
    }
  }
+ 
