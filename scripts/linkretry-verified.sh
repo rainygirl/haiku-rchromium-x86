@@ -100,6 +100,12 @@ for i in ${RCHROMIUM_LINK_ATTEMPTS:-1 2 3 4 5 6}; do
     # a stale binary and believing the source had been rebuilt.
     if [ "$rc" != 0 ]; then
         printf '=== attempt %s: ninja exited %s\n' "$i" "$rc" >> "$LOG"
+        # Throw away what a killed ld left behind. When it dies with signal 21
+        # it has usually already created the output and written part of it --
+        # 141,664,135 bytes on 2026-09-22 -- and that stub is newer than every
+        # input, so the next attempt's ninja says "no work to do" and the
+        # attempt is spent on nothing. Attempt 6 of that run went that way.
+        rm -f "$OUT/content_shell"
     elif [ -f "$OUT/content_shell" ] && head -c 4 "$OUT/content_shell" | grep -q ELF; then
         if ! python3 /boot/home/verify_embedded_blob.py "$OUT/content_shell" >> "$LOG" 2>&1; then
             printf '=== attempt %s: blob corrupt, repairing from embedded.o\n' "$i" >> "$LOG"
