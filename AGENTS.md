@@ -1250,6 +1250,12 @@ Ten runs of x.com per binary, same page, same day:
 	lld, 235 MB                    .....X....   1 of 10 (and that one was OOM)
 	lld + --icf=all, 219 MB        ..........   0 of 10
 
+and the final binary, with every probe taken back out, another five at 130 s
+each: `.....` -- fifteen consecutive runs without a crash. The last of them
+shows the login card complete with `rainygirl` in "Email or username", caret
+in place and **Continue enabled**, which is the form itself confirming the
+value arrived rather than a screenshot of pixels.
+
 So the ICU stack was real and the input was innocent. `appendResult` faulted
 because something in the image was wrong, not because `toLowerCase()` was
 handed anything a local page could not produce -- which is exactly why the BMP
