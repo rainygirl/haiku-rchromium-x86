@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>type test</title>
+<style>
+ body { font-size: 22px; font-family: sans-serif; }
+ input, textarea { font-size: 22px; padding: 5px; width: 400px; }
+ #ce { border: 1px solid #888; padding: 5px; width: 400px; min-height: 30px; }
+ #out { color: #060; }
+</style></head>
+<body>
+<p><input id="i" placeholder="input"></p>
+<p><textarea id="t" rows="2" placeholder="textarea"></textarea></p>
+<div id="ce" contenteditable>contenteditable</div>
+<p id="out">waiting</p>
+<p id="box">boxes</p>
+<script>
+document.getElementById('i').focus();
+function refresh() {
+  var i = document.getElementById('i');
+  var t = document.getElementById('t');
+  var ce = document.getElementById('ce');
+  document.getElementById('out').textContent =
+    'input=[' + i.value + '] textarea=[' + t.value + '] ce=[' + ce.textContent + ']' +
+    ' active=' + (document.activeElement ? document.activeElement.id || document.activeElement.tagName : '?');
+  var r = i.getBoundingClientRect();
+  document.getElementById('box').textContent =
+    'input box ' + Math.round(r.width) + 'x' + Math.round(r.height);
+  document.title = document.getElementById('out').textContent;
+}
+setInterval(refresh, 500);
+refresh();
+</script>
+</body></html>
