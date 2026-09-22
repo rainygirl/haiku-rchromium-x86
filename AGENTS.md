@@ -1145,7 +1145,7 @@ cycles. And read every return path in a function before putting a probe at the
 bottom of it -- `CreateTypeface()` returns early in a branch that was never
 read, so a probe on its last line printed nothing and was misread the same way.
 
-## x.com still crashes half the time, in ICU's case mapper (open, 2026-09-22)
+## x.com crashed half the time, and the link was why (fixed 2026-09-22)
 
 With the fonts fixed, ten runs of `https://x.com/i/flow/login` on the
 installed binary (`scripts/xrun.sh`, 70 s each, keystrokes injected at the
@@ -1210,11 +1210,56 @@ Ruled out so far:
   honours `pthread_attr_setstacksize`: a 4 MB request reads back as 4 MB,
   where the default reads back as 262,144.
 
-Being measured now: the arguments of the call that does it. A probe in
-`LocaleConvertCase` prints `src`, `src_length`, `dest`, `dest_length`, the
-pass number and whether the flat content is one-byte, before and after each
-`u_strToLower`. The last line before the crash names the input, and an input
-can be reproduced locally.
+### It was the binary, not the code (2026-09-22)
+
+The probe went in -- `LocaleConvertCase` printing `src`, `src_length`,
+`dest`, `dest_length`, the pass number and whether the flat content is
+one-byte, before and after each `u_strToLower` -- and then BFD ld refused to
+link it eight times running. So lld was tried instead (`pkgman install
+llvm19_x86_lld`), and that changed the answer rather than the tooling.
+
+lld links this binary on the first attempt, peaking at 1.05 GB where BFD peaks
+at 1.9 GB, and **the V8 embedded blob comes out correct**. Every BFD link of
+this target corrupts it -- 804,412 of 1,085,056 bytes wrong on one measured
+the same afternoon -- and `repair_embedded_blob.py` exists to patch it back
+afterwards. That repair has always been believed sufficient, because the two
+gates pass after it. It is not: the gates catch a wrong blob and whole zero
+pages, and nothing else.
+
+Ten runs of x.com per binary, same page, same day:
+
+	BFD, blob repaired, 188 MB     ..X...XXXX   7 of 10 crashed
+	lld, 235 MB                    .....X....   1 of 10 (and that one was OOM)
+	lld + --icf=all, 219 MB        ..........   0 of 10
+
+So the ICU stack was real and the input was innocent. `appendResult` faulted
+because something in the image was wrong, not because `toLowerCase()` was
+handed anything a local page could not produce -- which is exactly why the BMP
+walk, the astral walk, the lone surrogates and the 20,000-unit strings all
+came back clean.
+
+The 235 MB run's single crash is worth keeping separate: it was `signal 6`,
+not `signal 11`, from `WTF::Partitions::HandleOutOfMemory` under
+`TextCodecUTF8::Decode` decoding a script. Genuine memory exhaustion on a 2 GB
+machine, and the reason `--icf=all` and `-z noseparate-code` are on the lld
+line: 235 MB down to 219 MB is 16 MB this machine does not have to spare.
+
+Two defects had to be fixed before lld would link at all, and both are real:
+
+- `-z notext`, because ffmpeg's hand-written x86 assembly takes `R_386_32`
+  relocations against `ff_h264_cabac_tables`. BFD accepts them silently in a
+  non-PIE executable; lld refuses by default. Haiku's loader handles text
+  relocations.
+- Patch 0093, because `DriveMetricsProvider::HasSeekPenalty()` has been
+  undefined on this port since `drive_metrics_provider_linux.cc` was excluded
+  with nothing put in its place. `--gc-sections` was hiding it: BFD discards
+  the referencing section before it resolves anything, lld resolves first.
+
+**Use lld.** `RCHROMIUM_LLD=1` in `scripts/lowmem-toolchain/g++-x86`. It is
+faster, it fits, it does not need `--no-keep-memory`, and it does not need the
+blob repair. `linkretry-verified.sh` and its ladder remain for a machine
+without the package, and the two gates stay on principle -- but the thing they
+were built to survive has a solution now.
 
 ## Injecting keystrokes for a real test (2026-09-20)
 
