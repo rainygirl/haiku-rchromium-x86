@@ -948,7 +948,7 @@ fallback gap above: `getComputedStyle` says the default form-control font is
 Arial, which this machine does not have and `GetLastResortFallbackFont()`
 cannot resolve.
 
-## Every font family lookup fails, and that is why form controls collapse (open, 2026-09-22)
+## Every font family lookup fails, and that is why form controls collapse (FIXED 2026-09-22)
 
 This is the one open fault behind "typed text does not show up". It is not a
 keyboard problem and not a form-control problem; it is that
@@ -1071,9 +1071,56 @@ fontconfig at Haiku's own `/boot/system/settings/fonts/fonts.conf` crashes in
 `FcCharSetSubtractCount`. The exclusion looks like a decision taken before
 that config existed and never revisited.
 
-So the measurement to make is simply to restore the bind and see. That build
-is running. Keep `fctest2`: it turns a font hypothesis from a forty-minute
-rebuild-and-link into three seconds.
+So the measurement to make is simply to restore the bind and see.
+
+### Restored, and that was the whole fault (2026-09-22)
+
+Patch 0079's font half is gone; its `DiscardableSharedMemoryManager` guard
+stays. With the receiver bound, on `file:///boot/home/typetest.html`:
+
+	[RCH] binding FontService receiver
+	legacy typeface for "Noto Sans"  -> ok
+	legacy typeface for "sans-serif" -> ok
+	legacy typeface for "monospace"  -> ok
+	legacy typeface for "Arial"      -> NULL
+
+	input=[hello] textarea=[] ce=[contenteditable] active=i
+	input box 414x40
+
+and on `fonttest.html`, four paragraphs in four families measuring
+`784x26 | 784x30 | 784x30 | 784x30` with the `<input>` at `353x40`. Arial,
+Helvetica, Times and Courier still come back null, which is correct -- Haiku
+has none of them, and `MatchFont()` refusing a substitute is what sends Blink
+on to the next family in the CSS list. The probe shows it working:
+
+	fc sort  family=monospace   set=0xb205950 n=116
+	fc match family=monospace   postcfg=Noto Sans Mono  match=0xb3ad660
+	fc match family=Courier New postcfg=Courier New     match=(nil)
+
+`computed_style.cc`'s `NOTREACHED()` fires **zero** times where it fired
+eleven on the same page an hour earlier. No crash in `FcCharSetSubtractCount`
+or anywhere else.
+
+**Both of the "two things still wrong" above are fixed by this one change**,
+and neither was what it looked like. Text form controls took no typed text
+because their inner editor had zero height, not because the keypress default
+action was going astray; nothing painted in an editable element for the same
+reason.
+
+On the real page, `https://x.com/i/flow/login`: the login card renders
+completely -- the X mark, the heading, the three provider buttons with their
+Google and Apple glyphs, the disabled Continue button, the terms text -- and
+`rainygirl` typed into "Email or username" appears in the field with its
+caret, with the floating label animating up the way it does anywhere else. No
+crash over a ninety-second load.
+
+Keep `fctest2`: it turns a font hypothesis from a forty-minute
+rebuild-and-link into three seconds. And keep the shape of this mistake in
+mind. Two days went into fontconfig, Skia and the input method because the
+symptom was "typing does not work"; the probe that settled it did so by
+printing **nothing**, which was only readable as an answer because another
+probe in the same run printed something. An instrument that can only say yes
+cannot tell silence from absence.
 
 One thing found while reading for it, worth fixing on its own account:
 `third_party/fontconfig/include/config.h` is a Linux x86-64 configure result
