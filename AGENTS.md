@@ -662,6 +662,54 @@ therefore ordinary Chromium C++ rather than Blink core, which is the part that
 runs at 0.2-0.4 edges per minute. Estimates made from inside Blink core are the
 pessimistic end, not the average.
 
+## `--gc-sections` is load-bearing, not a memory lever (2026-09-22)
+
+The section above lists "dropping `--gc-sections`" as the next lever after
+`--no-keep-memory` and `--reduce-memory-overheads`, and
+`scripts/linkretry-verified.sh` acted on that from attempt 3 onwards. It cannot
+work. Four attempts on 2026-09-22 with the flag dropped all failed, and none of
+them failed for memory:
+
+	metrics_jumbo_2.o: in function
+	  `metrics::DriveMetricsProvider::GetDriveMetricsOnBackgroundThread(int)':
+	undefined reference to
+	  `metrics::DriveMetricsProvider::HasSeekPenalty(base::FilePath const&, bool*)'
+
+`components/metrics` only defines `HasSeekPenalty` in its per-OS files --
+`drive_metrics_provider_{linux,win,mac,...}.cc` -- and this port compiles none
+of them. The reference has therefore been unresolved since the first day this
+target was attempted; `--gc-sections` discards the section that makes it before
+ld ever has to resolve anything. `scripts/lowmem-toolchain/g++-x86` already
+recorded exactly this happening to `protozero_plugin` and `wait4`, and the
+lesson simply was not carried across to the retry ladder.
+
+Two things follow. The six retries were never six tries at one thing: attempts
+1-2 asked a memory question and attempts 3-6 could not have succeeded at any
+amount of free memory, so a run that "failed six times" was really a run that
+failed twice. And the levers that are actually available are the ones that cost
+ld memory without costing correctness, in this order: `-Wl,-O2` (a string
+tail-merge pass), then `--build-id` (ld hashes the finished ~188 MB image and
+nothing in this port reads one), then symbols, last, because
+`scripts/resolve_haiku_stack.py` needs `.symtab` to turn a Haiku backtrace into
+names. The wrapper exposes all three (`RCHROMIUM_GC_NO_O2`,
+`RCHROMIUM_NO_BUILDID`, `RCHROMIUM_STRIP`) and the ladder now walks them.
+
+### The `.rodata` zero-page gate earns its keep
+
+`scan_zero_pages.py`'s own docstring warns that a `.rodata`-only failure can be
+a genuinely zero const object and says to look the address up before believing
+it. Done, on the 2026-09-22 13:35 link, which the gate rejected for four
+consecutive zero pages at `0x06ff4000` after the embedded blob had been
+repaired and verified:
+
+	0x06f68ae0 +0x0e6e1f  net::(anonymous namespace)::kPreloadedHSTSData
+
+That is the HSTS preload trie, Huffman-coded data with no reason to hold 16 kB
+of zeros -- and the known-good binary's `.rodata` has four zero pages that are
+each **isolated**, never consecutive, which is the pattern the run limit was
+written to allow. So the damage was real, it was outside the V8 blob, and
+repairing the blob was not enough. Keep both gates.
+
 ## Non-main threads get a 256 kB stack, and V8 runs off it (fixed 2026-09-20)
 
 x.com killed the renderer. The Haiku crash report said it plainly:
