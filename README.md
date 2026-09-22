@@ -119,10 +119,12 @@ From a shell:
 ## Troubleshooting
 
 - **The installer says "embedded blob verification FAILED -- not installing".**
-  The binary you pointed it at is a broken link output (this machine's linker
-  can corrupt part of V8). Install from a verified build instead --
-  `/boot/home/content_shell.last-good` is always one -- or rebuild with the
-  verified link script (`AGENTS.md`).
+  The binary you pointed it at is a broken link output. GNU ld corrupts part
+  of V8 on every link of this target, and the repair that follows is not
+  enough on its own -- a repaired binary still crashed seven runs of ten on
+  x.com. Link with lld instead (`pkgman install llvm19_x86_lld`, then
+  `RCHROMIUM_LLD=1`; see `AGENTS.md`), or install from
+  `/boot/home/content_shell.last-good`, which is always a verified build.
 - **Text does not appear / the browser exits as soon as a page shows text.**
   `/boot/home/rchromium-fonts.conf` is missing or unreadable. Re-run the
   installer, or copy `assets/rchromium-fonts.conf` there by hand.
