@@ -27,7 +27,10 @@
 OUT=/boot/home/rchromium-chromium87-fast/chromium/out/rchromium_native
 LOG=/boot/home/linkretry-verified.log
 : > "$LOG"
-for i in 1 2 3 4 5 6; do
+# RCHROMIUM_LINK_ATTEMPTS names which rungs of the ladder to walk, so a run
+# that already knows a setting has failed today can skip straight to the next
+# one instead of spending twenty minutes reproducing it.
+for i in ${RCHROMIUM_LINK_ATTEMPTS:-1 2 3 4 5 6}; do
     printf '=== attempt %s starting %s\n' "$i" "$(date)" >> "$LOG"
     cd "$OUT" || exit 1
     # --gc-sections is not optional on this build, whatever it costs ld.
