@@ -1188,14 +1188,33 @@ Ruled out so far:
   `toUpperCase()` and a padded string, reporting the last one that returned.
   It reaches `ALL DONE last ok U+FFFF` with no crash.
 
-Being measured now: whether the stack depth is the variable. Patch 0090
-already found one crash with this shape -- hundreds of stacked
-`InterpreterEntryTrampoline` frames running off Haiku's 256 kB non-main
-thread stack -- and fixed it by returning 4 MB from
-`GetDefaultThreadStackSize()`. `scripts/xarm.sh` runs baseline against
-`--js-flags=--stack-size=256` interleaved, ten each. If lowering V8's own
-limit well under the thread's stack changes the rate, then either that fix is
-not reaching this thread or 4 MB is not what it gets.
+- *Not an astral character, a lone surrogate or a long string.*
+  `lowertest2.html` walks U+10000..U+10FFFF with `String.fromCodePoint`, every
+  lone surrogate U+D800..U+DFFF, and strings of 64 to 20,000 units built from
+  characters whose case mapping changes length (U+0130, U+1E9E, U+FB00, sigma,
+  sharp-S, an emoji) -- including 299, 300 and 301 units, which is where
+  `ustrcase_mapWithOverlap` switches from its 300-unit stack buffer to
+  `uprv_malloc`. All clean. The first walk had missed all of this because
+  `String.fromCharCode` stops at U+FFFF.
+- *Not the stack.* Patch 0090 fixed a crash with exactly this shape --
+  hundreds of stacked `InterpreterEntryTrampoline` frames running off Haiku's
+  256 kB non-main thread stack -- by returning 4 MB from
+  `GetDefaultThreadStackSize()`. Interleaved, ten runs each
+  (`scripts/xarm.sh`):
+
+	baseline   XXXXX.X..X   7 of 10
+	stack-256  XXXXX.XX.X   8 of 10
+
+  Identical, down to which runs survived, which says the two arms saw the same
+  page rather than the same flag. And `scripts/stacksize.c` confirms Haiku
+  honours `pthread_attr_setstacksize`: a 4 MB request reads back as 4 MB,
+  where the default reads back as 262,144.
+
+Being measured now: the arguments of the call that does it. A probe in
+`LocaleConvertCase` prints `src`, `src_length`, `dest`, `dest_length`, the
+pass number and whether the flat content is one-byte, before and after each
+`u_strToLower`. The last line before the crash names the input, and an input
+can be reproduced locally.
 
 ## Injecting keystrokes for a real test (2026-09-20)
 
