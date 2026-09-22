@@ -69,14 +69,21 @@ for i in ${RCHROMIUM_LINK_ATTEMPTS:-1 2 3 4 5 6}; do
     # swap, before nice(1), which has since turned out to matter more than
     # either flag. Worth the two attempts, because a link that has to be
     # discarded is no cheaper than one that dies.
+    #
+    # Rungs 3 to 6 walk the plain link from cheapest concession to dearest;
+    # from 7 on it goes back to letting ld economise and simply asks again,
+    # because that configuration does finish -- it just finishes wrong about
+    # as often as not, and the two gates below catch it. The known-good binary
+    # of 2026-09-22 12:31 came out of exactly that: retry until one is clean.
     KEEP=1 NOO2= NOBUILDID= STRIP= PLAIN=
     case "$i" in
         1|2) DESC="--gc-sections and -Wl,-O2 kept, ld economising" ;;
         3|4) PLAIN=1; DESC="no --no-keep-memory, no --reduce-memory-overheads" ;;
         5)   PLAIN=1; NOBUILDID=1
              DESC="neither memory flag, dropping --build-id" ;;
-        *)   NOO2=1; KEEP=; NOBUILDID=1; STRIP=1
-             DESC="ld economising, dropping -Wl,-O2 and --build-id, stripping" ;;
+        6)   PLAIN=1; NOBUILDID=1; STRIP=1
+             DESC="neither memory flag, dropping --build-id, stripping" ;;
+        *)   DESC="ld economising again, asking for a clean one" ;;
     esac
     printf '=== attempt %s: %s\n' "$i" "$DESC" >> "$LOG"
     PKG_CONFIG_PATH=/boot/system/develop/lib/x86/pkgconfig \
