@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>font test</title>
+<style>
+ body { font-size: 22px; }
+ .a { font-family: Arial; }
+ .b { font-family: "Noto Sans"; }
+ .c { font-family: sans-serif; }
+ .d { font-family: monospace; }
+ input { font-size: 22px; padding: 5px; }
+</style></head>
+<body>
+<p class="a">Arial AAA</p>
+<p class="b">Noto Sans BBB</p>
+<p class="c">sans-serif CCC</p>
+<p class="d">monospace DDD</p>
+<input id="i" value="typed text">
+<p id="out">measuring</p>
+<script>
+function m(sel) {
+  var e = document.querySelector(sel);
+  var r = e.getBoundingClientRect();
+  return sel + ' ' + Math.round(r.width) + 'x' + Math.round(r.height);
+}
+setTimeout(function () {
+  document.getElementById('out').textContent =
+    [m('.a'), m('.b'), m('.c'), m('.d'), m('#i')].join(' | ');
+  document.title = document.getElementById('out').textContent;
+}, 1500);
+</script>
+</body></html>
