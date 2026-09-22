@@ -38,6 +38,17 @@ name resolves at all. The patch is kept because the list was wrong on its own
 terms -- Haiku has neither "Sans" nor "Arial" -- but the real fault is
 upstream of it and is still open.
 
+SECOND CORRECTION (2026-09-22, later the same day): the fault is found, and
+it is not in fontconfig or in Skia at all, so the paragraph above about
+"Skia rejects a match whose family name differs" is describing code that does
+not run on this port. `SkFontConfigInterface::RefGlobal()` here is a mojo
+`font_service::FontLoader`, set by `RendererBlinkPlatformImpl`, and the
+browser end of that pipe is deliberately left unbound on Haiku
+(`render_process_host_impl.cc:1330`) because `ConnectToFontService()` crashes
+inside `FcCharSetSubtractCount()`. Every family lookup is a call into nothing.
+See AGENTS.md, "The probe was silent, and the silence was the answer". This
+patch stays correct about its own small point and irrelevant to the outcome.
+
 Noto is what `assets/rchromium-fonts.conf` points fontconfig at and what
 `install.sh` requires, so it is the right name here; DejaVu is tried after it
 for a machine that has one and not the other.
