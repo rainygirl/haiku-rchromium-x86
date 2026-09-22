@@ -900,6 +900,75 @@ fallback gap above: `getComputedStyle` says the default form-control font is
 Arial, which this machine does not have and `GetLastResortFallbackFont()`
 cannot resolve.
 
+## Every font family lookup fails, and that is why form controls collapse (open, 2026-09-22)
+
+This is the one open fault behind "typed text does not show up". It is not a
+keyboard problem and not a form-control problem; it is that
+`FontCache::GetFontPlatformData()` returns null for **every** family name.
+
+Measured by instrumenting `font_cache.cc` and `font_cache_skia.cc`:
+
+	GetFontPlatformData family=Helvetica      size=20 result=NULL
+	GetFontPlatformData family=Arial          size=20 result=NULL
+	GetFontPlatformData family=sans-serif     size=20 result=NULL
+	GetFontPlatformData family=Sans           size=20 result=NULL
+	GetFontPlatformData family=Noto Sans      size=20 result=NULL
+	GetFontPlatformData family=DejaVu Sans    size=20 result=NULL
+	GetFontPlatformData family=Inter          size=22 result=NULL
+
+The chain from there is short and fully confirmed: no family resolves ->
+`FontFallbackList` has no primary font -> `ComputedStyle::GetFontHeight()`
+takes its `NOTREACHED()` and returns a zero `FontHeight` -> every line box has
+height zero -> an `<input>` is padding and border around a zero-height inner
+editor (`294x14` for a 22px font with 5px padding; `294x44` if a
+`line-height:30px` is named, which is what proves the font-derived height is
+what is missing).
+
+Why the page is not blank anyway: exactly one `SimpleFontData` is built for a
+whole page, at the body size, family **Inter** -- and there is no Inter file in
+any of the configured font directories, so it does not come through fontconfig
+at all. Body text paints from that one font, and `<p>` elements look correctly
+spaced because their margins space them, not their line boxes.
+
+What has been ruled out, each by measurement rather than argument:
+
+- *Not the last-resort list.* Patch 0092 adds families Haiku has; they are
+  tried (see Noto Sans and DejaVu Sans above) and return null like the rest.
+- *Not fontconfig aliases.* Twenty substitution rules, including strong
+  `binding="same"` edits for Arial, Helvetica, Times and Courier, changed
+  nothing.
+- *Not missing or unreadable fonts.* `/boot/system/data/fonts/ttfonts` holds
+  100 files, mode `-r--r--r--`, and the process runs as uid 0. Parsing the
+  name table of `NotoSans-Regular.ttf` gives family "Noto Sans" exactly.
+- *Not an unscanned fontconfig.* Pointed at a fresh `<cachedir>`, fontconfig
+  writes a 125 kB cache for that directory on the first run, so it does scan
+  and does find the fonts.
+- *Not `font_manager_`.* It is null on this port, so `CreateTypeface()` goes
+  to `SkTypeface_Factory::FromFamilyNameAndFontStyle()`, and that is what
+  returns null. (Note for whoever edits `CreateTypeface`: when `font_manager_`
+  *is* set, upstream returns its answer even when that answer is null, without
+  falling through to the legacy path. Not the cause here, but a trap.)
+- *Not font metrics.* Where a font does resolve the metrics are right:
+  `size=20 rawAsc=-19.375 rawDesc=4.82422 -> ascent=19 descent=5 fam=Inter`.
+
+So the failure is inside `SkFontConfigInterfaceDirect::matchFamilyName()`
+(`third_party/skia/src/ports/SkFontConfigInterface_direct.cpp`), which has two
+ways to fail: `FcFontSort()` returning an empty set, or `MatchFont()` rejecting
+every candidate through its family-name-equality rule. A probe printing which
+of the two it is was written and compiled but never got linked -- the VAIO's
+low-memory linker killed six attempts in a row. **That probe is the next step,
+and it should split the remaining problem in one run:** an empty sort is a
+fontconfig configuration fault, a rejecting `MatchFont` is Skia's strict
+substitute check and wants a different fix entirely.
+
+Two notes on method, both learned expensively here. Instrument with
+`LOG(ERROR)`, not `fprintf`: a raw `fprintf` from Blink does not reach the
+same stream as the `[RCH]` prints, which all come from the browser-side ozone
+code, and reading "no output" as "the function is never called" cost two build
+cycles. And read every return path in a function before putting a probe at the
+bottom of it -- `CreateTypeface()` returns early in a branch that was never
+read, so a probe on its last line printed nothing and was misread the same way.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
