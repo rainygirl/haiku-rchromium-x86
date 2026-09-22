@@ -183,6 +183,43 @@ if [ "x${RCHROMIUM_LINK_LOWMEM:-}" = "x1" ]; then
 		NICE="nice -n ${RCHROMIUM_LINK_NICE}"
 	fi
 
+	# RCHROMIUM_LLD=<path> links with LLVM's lld instead of GNU ld.
+	#
+	# Everything above is an attempt to talk BFD ld 2.45 into a link it does
+	# not fit into, and all of it is a choice between two bad outcomes: with
+	# --no-keep-memory and --reduce-memory-overheads ld finishes and writes
+	# damage into the output (the V8 blob, and on 2026-09-22 zero pages over
+	# net::kPreloadedHSTSData and inside .text); without them it is killed at
+	# 11 MB free, four times running, nice(1) and 8 GB of swap and a dropped
+	# --build-id and --strip-all notwithstanding.
+	#
+	# lld is packaged for Haiku's x86 secondary architecture
+	# (`pkgman search lld` lists llvm12 through llvm22, each `_x86_lld`), and
+	# it is a different linker rather than the same one asked more nicely: it
+	# does not build BFD's whole-program section graph the same way and it has
+	# none of that --no-keep-memory path's history of writing stale bytes into
+	# the output. Pass the driver flag, e.g.
+	# RCHROMIUM_LLD=/boot/system/bin/x86/ld.lld.
+	#
+	# Two things to watch when trying it. -Wl,--fatal-warnings is on this line,
+	# and lld warns about things BFD does not, so the first attempt may fail on
+	# a warning rather than on anything real. And the output has to go through
+	# the same two gates as any other -- a linker that has never built a Haiku
+	# Chromium before has earned no more trust than the one that has.
+	if [ "x$is_content_shell" = "xyes" ] && [ -n "${RCHROMIUM_LLD:-}" ]; then
+		# Drop the flags BFD-only options would make lld reject, then hand it
+		# the driver flag. Keep --gc-sections: it is load-bearing here, not a
+		# size optimisation (see linkretry-verified.sh).
+		for arg in "$@"; do
+			case "$arg" in
+				-Wl,--no-keep-memory|-Wl,--reduce-memory-overheads) ;;
+				*) set -- "$@" "$arg" ;;
+			esac
+			shift
+		done
+		exec $NICE "$REAL" -L"$UUID_LIB" -fuse-ld="${RCHROMIUM_LLD}" "$@"
+	fi
+
 	# RCHROMIUM_PLAIN=1 drops both memory flags and keeps everything else this
 	# branch does -- the nice(1) wrapper, the -L for libuuid, and whatever
 	# --gc-sections/-Wl,-O2 setting was chosen above.
