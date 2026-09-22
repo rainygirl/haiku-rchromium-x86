@@ -30,21 +30,45 @@ LOG=/boot/home/linkretry-verified.log
 for i in 1 2 3 4 5 6; do
     printf '=== attempt %s starting %s\n' "$i" "$(date)" >> "$LOG"
     cd "$OUT" || exit 1
-    # Attempts 1 and 2 keep --gc-sections and -Wl,-O2, which give the smaller
-    # binary. They are also what makes ld's peak too big for this machine once
-    # it has been up a while: six consecutive attempts were killed at 09:48 on
-    # 2026-09-21 with nice(1) already in play. From attempt 3 the wrapper
-    # strips both -- its own comments record that dropping them is what
-    # produced a finished binary -- rather than waiting for a reboot.
-    if [ "$i" -le 2 ]; then
-        KEEP=1
-    else
-        KEEP=
-        printf '=== attempt %s: dropping --gc-sections and -Wl,-O2\n' "$i" >> "$LOG"
-    fi
+    # --gc-sections is not optional on this build, whatever it costs ld.
+    #
+    # This ladder used to drop it from attempt 3 on. On 2026-09-22 all four
+    # attempts that did so failed the same way, and not for memory:
+    #
+    #   metrics_jumbo_2.o: undefined reference to
+    #     `metrics::DriveMetricsProvider::HasSeekPenalty(base::FilePath const&, bool*)'
+    #
+    # components/metrics only defines HasSeekPenalty in its per-OS files
+    # (linux/win/mac/...), none of which this port compiles, so the reference
+    # from GetDriveMetricsOnBackgroundThread has always been unresolved --
+    # --gc-sections was discarding the section that made it before ld ever had
+    # to resolve it. The wrapper's own comments record the same thing happening
+    # to protozero_plugin and `wait4'. So dropping the flag cannot produce a
+    # binary here; it only exchanges a memory kill for a link error, and the
+    # earlier note in this file that "dropping them is what produced a finished
+    # binary" was wrong.
+    #
+    # What is left to trade is -Wl,-O2, which is a string tail-merge pass: it
+    # costs a whole-program view for a small size gain and takes nothing away
+    # from the output's correctness. Then the build id (ld hashes the finished
+    # ~188 MB image to compute it, and nothing in this port reads one). Symbols
+    # go last, because scripts/resolve_haiku_stack.py needs .symtab to turn a
+    # Haiku backtrace into names -- a stripped binary is worth having only when
+    # the alternative is no binary.
+    KEEP=1 NOO2= NOBUILDID= STRIP=
+    case "$i" in
+        1|2) DESC="--gc-sections and -Wl,-O2 kept" ;;
+        3|4) NOO2=1; KEEP=; DESC="dropping -Wl,-O2" ;;
+        5)   NOO2=1; KEEP=; NOBUILDID=1; DESC="dropping -Wl,-O2 and --build-id" ;;
+        *)   NOO2=1; KEEP=; NOBUILDID=1; STRIP=1
+             DESC="dropping -Wl,-O2 and --build-id, stripping" ;;
+    esac
+    printf '=== attempt %s: %s\n' "$i" "$DESC" >> "$LOG"
     PKG_CONFIG_PATH=/boot/system/develop/lib/x86/pkgconfig \
     PATH=/boot/home/config/non-packaged/bin-lowmem:$PATH \
-    RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=$KEEP RCHROMIUM_LINK_NICE=10 \
+    RCHROMIUM_LINK_LOWMEM=1 RCHROMIUM_KEEP_GC=$KEEP RCHROMIUM_GC_NO_O2=$NOO2 \
+    RCHROMIUM_NO_BUILDID=$NOBUILDID RCHROMIUM_STRIP=$STRIP \
+    RCHROMIUM_LINK_NICE=10 \
         ninja -C . -j1 content_shell >> "$LOG" 2>&1
     rc=$?
     # ninja's exit status matters. Without this the script looked at the
