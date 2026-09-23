@@ -338,6 +338,12 @@ void HaikuContentView::DispatchKey(EventType type,
       key_code = DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
   }
 
+  static int keys = 0;
+  fprintf(stderr,
+          "[RCH] key #%d type=%d vk=%d code=%d char=%d\n", ++keys,
+          static_cast<int>(type), static_cast<int>(key_code),
+          static_cast<int>(dom_code), static_cast<int>(character));
+
   Post(std::make_unique<KeyEvent>(type, key_code, dom_code, flags, dom_key,
                                   EventTimeForNow()));
 }
@@ -473,6 +479,7 @@ constexpr uint32 kMsgReloadStop = 'rchR';
 constexpr uint32 kMsgGo = 'rchG';
 constexpr uint32 kMsgAddBookmark = 'rchA';
 constexpr uint32 kMsgOpenBookmarks = 'rchL';
+constexpr uint32 kMsgInstall = 'rchI';
 
 constexpr float kChromeHeight = 30.0f;
 constexpr float kButtonSize = 24.0f;
@@ -482,7 +489,7 @@ const char kChromeViewName[] = "rchromium chrome";
 
 class ChromeButton : public BView {
  public:
-  enum class Glyph { kBack, kForward, kReload, kStop, kStar, kList };
+  enum class Glyph { kBack, kForward, kReload, kStop, kStar, kList, kInstall };
 
   ChromeButton(BRect frame, const char* name, Glyph glyph, uint32 what)
       : BView(frame, name, B_FOLLOW_LEFT | B_FOLLOW_TOP, B_WILL_DRAW),
@@ -535,6 +542,9 @@ class ChromeButton : public BView {
         break;
       case Glyph::kStop:
         DrawStop(rect, base, flags);
+        break;
+      case Glyph::kInstall:
+        DrawInstall(rect, base, flags);
         break;
       case Glyph::kStar:
         DrawStar(rect, base, flags);
@@ -589,6 +599,34 @@ class ChromeButton : public BView {
     };
     FillPolygon(points, 3);
     PopState();
+  }
+
+  // Install. An arrow into a tray -- the same idea as Chrome's install icon
+  // and the usual "put this on the system" glyph, drawn rather than shipped as
+  // a bitmap so it follows the control colour like every other button here.
+  void DrawInstall(BRect rect, const rgb_color& base, uint32 flags) {
+    const float w = rect.Width();
+    const float cx = rect.left + w / 2.0f;
+    const float top = rect.top + w * 0.18f;
+    const float stem_bottom = rect.top + w * 0.55f;
+    const float head = w * 0.17f;
+    const float tray = rect.top + w * 0.78f;
+    const float inset = w * 0.20f;
+
+    SetHighColor(tint_color(base, flags == 0 ? B_DARKEN_4_TINT
+                                             : B_DARKEN_MAX_TINT));
+    SetPenSize(1.6f);
+    // Shaft.
+    StrokeLine(BPoint(cx, top), BPoint(cx, stem_bottom));
+    // Arrow head.
+    StrokeLine(BPoint(cx - head, stem_bottom - head),
+               BPoint(cx, stem_bottom));
+    StrokeLine(BPoint(cx + head, stem_bottom - head),
+               BPoint(cx, stem_bottom));
+    // Tray.
+    StrokeLine(BPoint(rect.left + inset, tray),
+               BPoint(rect.right - inset, tray));
+    SetPenSize(1.0f);
   }
 
   // Add-bookmark. A five-pointed star, computed rather than drawn from a
@@ -969,6 +1007,15 @@ class BrowserChromeView : public BView {
     // Bookmark buttons sit at the right-hand end, so the address field is
     // between the navigation controls and them. Their frames are fixed up in
     // Layout() along with the field.
+    // Hidden until a page says it can be installed. Created here rather than
+    // on demand so Layout() never has to care whether it exists.
+    install_ = new ChromeButton(BRect(0, 0, kButtonSize - 1, kButtonSize - 1),
+                                "install", ChromeButton::Glyph::kInstall,
+                                kMsgInstall);
+    install_->SetEnabled(true);
+    install_->Hide();
+    AddChild(install_);
+
     star_ = new ChromeButton(BRect(0, 0, kButtonSize - 1, kButtonSize - 1),
                              "add bookmark", ChromeButton::Glyph::kStar,
                              kMsgAddBookmark);
@@ -1022,6 +1069,9 @@ class BrowserChromeView : public BView {
       case kMsgOpenBookmarks:
         ShowBookmarks();
         return;
+      case kMsgInstall:
+        client_->OnInstall();
+        return;
       default:
         BView::MessageReceived(message);
     }
@@ -1047,6 +1097,28 @@ class BrowserChromeView : public BView {
                                  : ChromeButton::Glyph::kReload);
   }
 
+  // Show or hide the install button. Re-lays out, because the address field
+  // has to give up or take back the width.
+  void SetInstallable(bool installable, const std::string& app_name) {
+    const bool showing = !install_->IsHidden();
+    if (installable == showing) {
+      if (installable)
+        install_->SetToolTip(app_name.empty()
+                                 ? "Install this app"
+                                 : ("Install " + app_name).c_str());
+      return;
+    }
+    if (installable) {
+      install_->SetToolTip(app_name.empty() ? "Install this app"
+                                            : ("Install " + app_name).c_str());
+      install_->Show();
+    } else {
+      install_->Hide();
+    }
+    Layout(Bounds().Width());
+    Invalidate();
+  }
+
  private:
   void ShowBookmarks() {
     if (bookmarks_window_ == nullptr)
@@ -1065,9 +1137,11 @@ class BrowserChromeView : public BView {
   // and the two bookmark buttons at the right edge.
   void Layout(float width) {
     const float top = (kChromeHeight - kButtonSize) / 2.0f;
-    const float right_block = 2 * (kButtonSize + kPadding);
+    const int right_buttons = install_->IsHidden() ? 2 : 3;
+    const float right_block = right_buttons * (kButtonSize + kPadding);
     bookmarks_->MoveTo(width - kButtonSize - kPadding, top);
     star_->MoveTo(width - 2 * kButtonSize - 2 * kPadding, top);
+    install_->MoveTo(width - 3 * kButtonSize - 3 * kPadding, top);
     const float address_width =
         width - address_left_ - kPadding - right_block;
     address_->ResizeTo(address_width > 40.0f ? address_width : 40.0f,
@@ -1096,6 +1170,7 @@ class BrowserChromeView : public BView {
   ChromeButton* back_ = nullptr;
   ChromeButton* forward_ = nullptr;
   ChromeButton* reload_ = nullptr;
+  ChromeButton* install_ = nullptr;
   ChromeButton* star_ = nullptr;
   ChromeButton* bookmarks_ = nullptr;
   BTextControl* address_ = nullptr;
@@ -1195,6 +1270,18 @@ void SetBrowserChromeNavState(gfx::AcceleratedWidget widget,
   BrowserChromeView* chrome = ChromeOf(window);
   if (chrome != nullptr)
     chrome->SetNavState(can_go_back, can_go_forward, is_loading);
+  window->Unlock();
+}
+
+void SetBrowserChromeInstallable(gfx::AcceleratedWidget widget,
+                                 bool installable,
+                                 const std::string& app_name) {
+  BWindow* window = NativeWindowFor(widget);
+  if (window == nullptr || !window->Lock())
+    return;
+  BrowserChromeView* chrome = ChromeOf(window);
+  if (chrome != nullptr)
+    chrome->SetInstallable(installable, app_name);
   window->Unlock();
 }
 

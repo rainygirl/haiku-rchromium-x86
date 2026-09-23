@@ -25,6 +25,9 @@ class HaikuBrowserChromeClient {
   // for both and tells them apart by the state it was last given.
   virtual void OnReloadOrStop() = 0;
   virtual void OnNavigate(const std::string& text) = 0;
+  // The install button. Only ever reachable while the button is showing,
+  // which SetBrowserChromeInstallable() decides.
+  virtual void OnInstall() = 0;
 
  protected:
   ~HaikuBrowserChromeClient() = default;
@@ -52,6 +55,14 @@ void SetBrowserChromeNavState(gfx::AcceleratedWidget widget,
                               bool can_go_back,
                               bool can_go_forward,
                               bool is_loading);
+
+// Show or hide the install button, and give it the app name for its tooltip.
+// A page is installable when it carries a web app manifest this port can turn
+// into a Deskbar entry; content/shell decides, because the manifest lives
+// behind WebContents and the toolbar must not name a content type.
+void SetBrowserChromeInstallable(gfx::AcceleratedWidget widget,
+                                 bool installable,
+                                 const std::string& app_name);
 
 }  // namespace ui
 

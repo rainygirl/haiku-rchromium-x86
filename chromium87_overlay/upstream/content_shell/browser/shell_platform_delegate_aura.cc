@@ -29,6 +29,13 @@
 #include "base/time/time.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "haiku_port/ozone/haiku_browser_chrome.h"
+#include <sys/stat.h>
+
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/path_service.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "ui/aura/screen_ozone.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/aura/window_tree_host_observer.h"
@@ -51,6 +58,10 @@ namespace {
 // thread whose crashes are hardest to attribute here. `shell_` is cleared in
 // CleanUp() instead, so what leaks is one small object per window in a
 // process that has one window.
+// Defined below, next to the rest of the install code. Declared here because
+// the toolbar client is written before it and calls into it.
+void OnManifestForInstall(const blink::Manifest& manifest);
+
 class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
  public:
   explicit HaikuChromeClient(Shell* shell)
@@ -116,7 +127,48 @@ class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
                                   base::Unretained(this), url));
   }
 
+  void OnInstall() override {
+    ui_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&HaikuChromeClient::RunInstall,
+                       base::Unretained(this)));
+  }
+
+  // RCH_INSTALL_AFTER=<seconds> presses the install button on a timer.
+  //
+  // The machine this port is developed on is a physical laptop reached over
+  // ssh: there is no way to click anything from here, and a feature that can
+  // only be tested by a person standing at it will not be tested. This runs
+  // the same path the button does -- OnInstall() on the looper thread is the
+  // only step it skips, and that step is a PostTask.
+  void ScheduleTestInstall() {
+    const char* spec = getenv("RCH_INSTALL_AFTER");
+    if (spec == nullptr)
+      return;
+    int seconds = 0;
+    if (!base::StringToInt(spec, &seconds))
+      return;
+    fprintf(stderr, "[RCH] scheduling install at t+%ds\n", seconds);
+    fflush(stderr);
+    ui_task_runner_->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&HaikuChromeClient::RunInstall,
+                       base::Unretained(this)),
+        base::TimeDelta::FromSeconds(seconds));
+  }
+
  private:
+  // On the UI thread: ask for the manifest again and install what comes back.
+  // Declared before the enum so it sits next to RunNavigate in reading order.
+  void RunInstall() {
+    if (shell_ == nullptr || shell_->web_contents() == nullptr)
+      return;
+    shell_->web_contents()->GetManifest(
+        base::BindOnce([](const GURL&, const blink::Manifest& manifest) {
+          OnManifestForInstall(manifest);
+        }));
+  }
+
   enum class Action { kBack, kForward, kReload, kStop };
 
   ~HaikuChromeClient() = default;
@@ -324,6 +376,7 @@ void ShellPlatformDelegate::CreatePlatformWindow(
   if (getenv("RCH_NO_TOOLBAR") == nullptr) {
     shell_data.chrome = new HaikuChromeClient(shell);
     shell_data.chrome->ScheduleTestNavigations();
+    shell_data.chrome->ScheduleTestInstall();
     const int inset =
         ui::AttachBrowserChrome(shell_data.widget, shell_data.chrome);
     fprintf(stderr, "[RCH] AttachBrowserChrome widget=%lu inset=%d\n",
@@ -509,6 +562,226 @@ void ShellPlatformDelegate::SetAddressBarURL(Shell* shell, const GURL& url) {
 #endif
 }
 
+#if defined(OS_HAIKU)
+namespace {
+
+// Is this page something we could install as a Haiku application?
+//
+// Chrome answers this in chrome/browser/web_applications, which content_shell
+// does not have and this port will not be growing. But everything the answer
+// needs is in the content layer already: WebContents::GetManifest() returns
+// the parsed manifest, and WebContents::DownloadImage() can fetch its icons.
+//
+// The test below is Chrome's installability test minus the service worker.
+// Chrome requires a fetch handler because an installed app there is expected
+// to work offline; here an installed app is a Deskbar entry that launches
+// content_shell at a URL, which is useful whether or not the site has a
+// worker. Requiring one would rule out most of what a person would actually
+// want to install on this machine. Recorded rather than silently different.
+bool IsInstallable(const blink::Manifest& manifest, std::string* why_not) {
+  if (manifest.IsEmpty()) {
+    *why_not = "no manifest";
+    return false;
+  }
+  if (!manifest.start_url.is_valid()) {
+    *why_not = "no valid start_url";
+    return false;
+  }
+  if (!manifest.name.has_value() && !manifest.short_name.has_value()) {
+    *why_not = "no name or short_name";
+    return false;
+  }
+  switch (manifest.display) {
+    case blink::mojom::DisplayMode::kStandalone:
+    case blink::mojom::DisplayMode::kFullscreen:
+    case blink::mojom::DisplayMode::kMinimalUi:
+      break;
+    default:
+      *why_not = "display is not standalone/fullscreen/minimal-ui";
+      return false;
+  }
+  for (const auto& icon : manifest.icons) {
+    if (!icon.src.is_valid())
+      continue;
+    for (const auto& purpose : icon.purpose) {
+      if (purpose == blink::Manifest::ImageResource::Purpose::ANY ||
+          purpose == blink::Manifest::ImageResource::Purpose::MASKABLE) {
+        return true;
+      }
+    }
+  }
+  *why_not = "no usable icon";
+  return false;
+}
+
+std::string AppNameOf(const blink::Manifest& manifest) {
+  if (manifest.name.has_value())
+    return base::UTF16ToUTF8(manifest.name.value());
+  if (manifest.short_name.has_value())
+    return base::UTF16ToUTF8(manifest.short_name.value());
+  return std::string();
+}
+
+// A name that can be a directory and a Deskbar entry: no slashes, no leading
+// dot, not empty, and short enough to read in a menu.
+std::string SanitizeAppName(const std::string& name, const GURL& start_url) {
+  std::string out;
+  for (char c : name) {
+    if (c == '/' || c == '\\' || c == ':' || c == '\n' || c == '\r' ||
+        c == '\t') {
+      out += ' ';
+    } else if (static_cast<unsigned char>(c) < 0x20) {
+      continue;
+    } else {
+      out += c;
+    }
+  }
+  base::TrimWhitespaceASCII(out, base::TRIM_ALL, &out);
+  while (!out.empty() && out[0] == '.')
+    out.erase(0, 1);
+  if (out.size() > 48)
+    out.resize(48);
+  base::TrimWhitespaceASCII(out, base::TRIM_ALL, &out);
+  if (out.empty())
+    out = start_url.host();
+  if (out.empty())
+    out = "Web App";
+  return out;
+}
+
+// Where an installed app lives. ~/config/non-packaged/apps is the standard
+// place for a user's own applications on Haiku and Deskbar lists what is in
+// it, so an install shows up in the Applications menu with no extra step.
+base::FilePath AppDirFor(const std::string& app_name) {
+  const char* home = getenv("HOME");
+  if (home == nullptr)
+    home = "/boot/home";
+  return base::FilePath(home)
+      .Append("config")
+      .Append("non-packaged")
+      .Append("apps")
+      .Append(app_name);
+}
+
+// The launcher: a shell script that starts this very content_shell at the
+// manifest's start_url with the toolbar off.
+//
+// A script rather than a copied binary. content_shell is 219 MB and an
+// installed app is not a second browser; it is the same browser pointed at
+// one URL. Tracker runs an executable script on double-click and Deskbar
+// lists it, so a script is a first-class application here.
+bool WriteLauncher(const base::FilePath& dir,
+                   const std::string& app_name,
+                   const GURL& start_url,
+                   std::string* error) {
+  base::FilePath shell_path;
+  if (!base::PathService::Get(base::FILE_EXE, &shell_path)) {
+    *error = "cannot find my own path";
+    return false;
+  }
+
+  std::string script;
+  script += "#!/bin/sh\n";
+  script += "# " + app_name + "\n";
+  script += "#\n";
+  script += "# Installed by R Chromium from " + start_url.spec() + "\n";
+  script += "# Delete this directory to uninstall.\n";
+  script += "\n";
+  script += "SHELL_BIN=\"" + shell_path.value() + "\"\n";
+  script += "[ -x \"$SHELL_BIN\" ] || SHELL_BIN=/boot/system/apps/RChromium/content_shell\n";
+  script += "APPDIR=$(dirname \"$SHELL_BIN\")\n";
+  script += "\n";
+  script += "# Blink aborts without a fontconfig file and Haiku ships no /etc/fonts.\n";
+  script += "if [ -z \"$FONTCONFIG_FILE\" ]; then\n";
+  script += "\tif [ -r \"$APPDIR/rchromium-fonts.conf\" ]; then\n";
+  script += "\t\tFONTCONFIG_FILE=\"$APPDIR/rchromium-fonts.conf\"\n";
+  script += "\telse\n";
+  script += "\t\tFONTCONFIG_FILE=/boot/home/rchromium-fonts.conf\n";
+  script += "\tfi\n";
+  script += "\texport FONTCONFIG_FILE\n";
+  script += "fi\n";
+  script += "\n";
+  script += "# No toolbar: an installed app is a window onto one site.\n";
+  script += "RCH_NO_TOOLBAR=1\n";
+  script += "export RCH_NO_TOOLBAR\n";
+  script += "\n";
+  script += "exec \"$SHELL_BIN\" \\\n";
+  script += "\t--ozone-platform=haiku \\\n";
+  script += "\t--single-process \\\n";
+  script += "\t--disable-gpu \\\n";
+  script += "\t--in-process-gpu \\\n";
+  script += "\t--disable-gpu-compositing \\\n";
+  script += "\t--user-data-dir=\"" + dir.value() + "/profile\" \\\n";
+  script += "\t\"" + start_url.spec() + "\" \"$@\"\n";
+
+  const base::FilePath launcher = dir.Append(app_name);
+  if (!base::WriteFile(launcher, script)) {
+    *error = "cannot write " + launcher.value();
+    return false;
+  }
+  if (chmod(launcher.value().c_str(), 0755) != 0) {
+    *error = "cannot chmod " + launcher.value();
+    return false;
+  }
+  return true;
+}
+
+void OnManifest(gfx::AcceleratedWidget widget,
+                const GURL& page_url,
+                const GURL& manifest_url,
+                const blink::Manifest& manifest) {
+  std::string why_not;
+  const bool ok = IsInstallable(manifest, &why_not);
+  const std::string name = AppNameOf(manifest);
+  fprintf(stderr,
+          "[RCH] manifest page=%s url=%s installable=%d name=\"%s\" "
+          "start=%s display=%d icons=%zu%s%s\n",
+          page_url.spec().c_str(), manifest_url.spec().c_str(), ok ? 1 : 0,
+          name.c_str(), manifest.start_url.spec().c_str(),
+          static_cast<int>(manifest.display), manifest.icons.size(),
+          ok ? "" : " why=", ok ? "" : why_not.c_str());
+  fflush(stderr);
+  ui::SetBrowserChromeInstallable(widget, ok, name);
+}
+
+// Second half of the install: the manifest is asked for again at the moment
+// the button is pressed rather than cached, because the page may have
+// navigated since the button appeared and installing the previous site's app
+// would be a surprise.
+void OnManifestForInstall(const blink::Manifest& manifest) {
+  std::string why_not;
+  if (!IsInstallable(manifest, &why_not)) {
+    fprintf(stderr, "[RCH] install refused: %s\n", why_not.c_str());
+    fflush(stderr);
+    return;
+  }
+  const std::string app_name =
+      SanitizeAppName(AppNameOf(manifest), manifest.start_url);
+  const base::FilePath dir = AppDirFor(app_name);
+
+  base::File::Error mkdir_error = base::File::FILE_OK;
+  if (!base::CreateDirectoryAndGetError(dir, &mkdir_error)) {
+    fprintf(stderr, "[RCH] install failed: cannot create %s (%d)\n",
+            dir.value().c_str(), static_cast<int>(mkdir_error));
+    fflush(stderr);
+    return;
+  }
+
+  std::string error;
+  if (!WriteLauncher(dir, app_name, manifest.start_url, &error)) {
+    fprintf(stderr, "[RCH] install failed: %s\n", error.c_str());
+    fflush(stderr);
+    return;
+  }
+
+  fprintf(stderr, "[RCH] installed \"%s\" -> %s\n", app_name.c_str(),
+          dir.Append(app_name).value().c_str());
+  fflush(stderr);
+}
+
+}  // namespace
+#endif  // defined(OS_HAIKU)
+
 void ShellPlatformDelegate::SetIsLoading(Shell* shell, bool loading) {
 #if defined(OS_HAIKU)
   auto it = shell_data_map_.find(shell);
@@ -520,6 +793,15 @@ void ShellPlatformDelegate::SetIsLoading(Shell* shell, bool loading) {
     shell_data.chrome->SetLoading(loading);
   ui::SetBrowserChromeNavState(shell_data.widget, shell_data.can_go_back,
                                shell_data.can_go_forward, loading);
+
+  // Ask once per load, when the load finishes. GetManifest() goes to the
+  // renderer and answers on the UI thread; asking earlier gets the manifest of
+  // whatever was there before.
+  if (!loading && shell->web_contents() != nullptr) {
+    const GURL page_url = shell->web_contents()->GetLastCommittedURL();
+    shell->web_contents()->GetManifest(
+        base::BindOnce(&OnManifest, shell_data.widget, page_url));
+  }
 #endif
 }
 
