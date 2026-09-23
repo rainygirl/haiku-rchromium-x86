@@ -64,6 +64,27 @@ void SetBrowserChromeInstallable(gfx::AcceleratedWidget widget,
                                  bool installable,
                                  const std::string& app_name);
 
+// The BWindow's own title, which is what Deskbar and the window tab show.
+//
+// Separate from SetBrowserChromeTitle(), which only updates the toolbar's
+// idea of the page for the bookmark button. With the toolbar off -- an
+// installed web app -- nothing was setting this at all and every window kept
+// the name it was created with.
+void SetNativeWindowTitle(gfx::AcceleratedWidget widget,
+                          const std::string& title);
+
+// Give a file the icon attributes Tracker and Deskbar read, so an installed
+// web app's launcher carries the site's own icon.
+//
+// `argb` is `width * height` pixels, one uint32 each, non-premultiplied
+// 0xAARRGGBB -- SkColor's layout, so the caller can produce it with
+// SkBitmap::getColor() and never name a Skia type here or a BeAPI one there.
+// Scaled to Haiku's 32x32 and 16x16 icon sizes by this function.
+bool SetFileIcon(const std::string& path,
+                 const uint32_t* argb,
+                 int width,
+                 int height);
+
 }  // namespace ui
 
 #endif

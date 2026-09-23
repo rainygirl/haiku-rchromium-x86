@@ -35,6 +35,8 @@
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/geometry/size.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "ui/aura/screen_ozone.h"
 #include "ui/aura/window_tree_host.h"
@@ -60,7 +62,8 @@ namespace {
 // process that has one window.
 // Defined below, next to the rest of the install code. Declared here because
 // the toolbar client is written before it and calls into it.
-void OnManifestForInstall(const blink::Manifest& manifest);
+void OnManifestForInstall(WebContents* web_contents,
+                          const blink::Manifest& manifest);
 
 class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
  public:
@@ -163,10 +166,13 @@ class HaikuChromeClient : public ui::HaikuBrowserChromeClient {
   void RunInstall() {
     if (shell_ == nullptr || shell_->web_contents() == nullptr)
       return;
-    shell_->web_contents()->GetManifest(
-        base::BindOnce([](const GURL&, const blink::Manifest& manifest) {
-          OnManifestForInstall(manifest);
-        }));
+    WebContents* contents = shell_->web_contents();
+    contents->GetManifest(base::BindOnce(
+        [](WebContents* contents, const GURL&,
+           const blink::Manifest& manifest) {
+          OnManifestForInstall(contents, manifest);
+        },
+        contents));
   }
 
   enum class Action { kBack, kForward, kReload, kStop };
@@ -705,6 +711,10 @@ bool WriteLauncher(const base::FilePath& dir,
   script += "RCH_NO_TOOLBAR=1\n";
   script += "export RCH_NO_TOOLBAR\n";
   script += "\n";
+  script += "# The window keeps the app's name rather than following the page.\n";
+  script += "RCH_APP_NAME=\"" + app_name + "\"\n";
+  script += "export RCH_APP_NAME\n";
+  script += "\n";
   script += "exec \"$SHELL_BIN\" \\\n";
   script += "\t--ozone-platform=haiku \\\n";
   script += "\t--single-process \\\n";
@@ -748,7 +758,92 @@ void OnManifest(gfx::AcceleratedWidget widget,
 // the button is pressed rather than cached, because the page may have
 // navigated since the button appeared and installing the previous site's app
 // would be a surprise.
-void OnManifestForInstall(const blink::Manifest& manifest) {
+// The icon to install with. Prefer the largest square one the manifest
+// declares; Haiku wants 32x32 and 16x16 and downscaling a big icon beats
+// upscaling a small one. A manifest may declare "any" as its size, which
+// means a vector -- take those first, since they rasterise to whatever is
+// asked for.
+GURL BestIconUrl(const blink::Manifest& manifest) {
+  GURL best;
+  int best_area = -1;
+  for (const auto& icon : manifest.icons) {
+    if (!icon.src.is_valid())
+      continue;
+    bool usable = false;
+    for (const auto& purpose : icon.purpose) {
+      if (purpose == blink::Manifest::ImageResource::Purpose::ANY ||
+          purpose == blink::Manifest::ImageResource::Purpose::MASKABLE) {
+        usable = true;
+        break;
+      }
+    }
+    if (!usable)
+      continue;
+    if (icon.sizes.empty()) {
+      // "any" -- a vector. Nothing beats it.
+      return icon.src;
+    }
+    for (const auto& size : icon.sizes) {
+      if (size.width() != size.height())
+        continue;
+      const int area = size.width() * size.height();
+      if (area > best_area) {
+        best_area = area;
+        best = icon.src;
+      }
+    }
+  }
+  // Nothing square: take the first usable one rather than none.
+  if (!best.is_valid()) {
+    for (const auto& icon : manifest.icons) {
+      if (icon.src.is_valid())
+        return icon.src;
+    }
+  }
+  return best;
+}
+
+// Hand the downloaded icon to the BeAPI side, which scales it and writes the
+// file's icon attributes. SkColor is 0xAARRGGBB non-premultiplied, which is
+// exactly what SetFileIcon() documents wanting, so neither side has to know
+// the other's bitmap type.
+void OnIconDownloaded(const base::FilePath& launcher,
+                      int /*id*/,
+                      int http_status_code,
+                      const GURL& image_url,
+                      const std::vector<SkBitmap>& bitmaps,
+                      const std::vector<gfx::Size>& /*sizes*/) {
+  if (bitmaps.empty()) {
+    fprintf(stderr, "[RCH] icon download failed (%d) for %s\n",
+            http_status_code, image_url.spec().c_str());
+    fflush(stderr);
+    return;
+  }
+  // Largest of what came back.
+  const SkBitmap* best = &bitmaps[0];
+  for (const SkBitmap& bitmap : bitmaps) {
+    if (bitmap.width() * bitmap.height() > best->width() * best->height())
+      best = &bitmap;
+  }
+  const int w = best->width();
+  const int h = best->height();
+  if (w <= 0 || h <= 0)
+    return;
+
+  std::vector<uint32_t> argb(static_cast<size_t>(w) * h);
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x)
+      argb[static_cast<size_t>(y) * w + x] = best->getColor(x, y);
+  }
+
+  const bool ok = ui::SetFileIcon(launcher.value(), argb.data(), w, h);
+  fprintf(stderr, "[RCH] icon %dx%d -> %s: %s\n", w, h,
+          launcher.value().c_str(), ok ? "set" : "FAILED");
+  fflush(stderr);
+}
+
+void OnManifestForInstall(WebContents* web_contents,
+                          const blink::Manifest& manifest) {
   std::string why_not;
   if (!IsInstallable(manifest, &why_not)) {
     fprintf(stderr, "[RCH] install refused: %s\n", why_not.c_str());
@@ -774,9 +869,20 @@ void OnManifestForInstall(const blink::Manifest& manifest) {
     return;
   }
 
+  const base::FilePath launcher = dir.Append(app_name);
   fprintf(stderr, "[RCH] installed \"%s\" -> %s\n", app_name.c_str(),
-          dir.Append(app_name).value().c_str());
+          launcher.value().c_str());
   fflush(stderr);
+
+  // The icon comes after: the app is already usable without one, and a
+  // download that fails should not fail the install.
+  const GURL icon_url = BestIconUrl(manifest);
+  if (icon_url.is_valid() && web_contents != nullptr) {
+    web_contents->DownloadImage(
+        icon_url, /*is_favicon=*/false, /*preferred_size=*/128,
+        /*max_bitmap_size=*/512, /*bypass_cache=*/false,
+        base::BindOnce(&OnIconDownloaded, launcher));
+  }
 }
 
 }  // namespace
@@ -812,6 +918,18 @@ void ShellPlatformDelegate::SetTitle(Shell* shell,
   if (it == shell_data_map_.end())
     return;
   ui::SetBrowserChromeTitle(it->second.widget, base::UTF16ToUTF8(title));
+
+  // And the window itself, which is what the window tab and Deskbar show.
+  //
+  // An installed web app is launched with RCH_APP_NAME and keeps that name
+  // whatever the page calls itself: it is one application, and a window that
+  // renames itself as the user moves around inside it does not look like one.
+  // A browser window follows the page.
+  const char* app_name = getenv("RCH_APP_NAME");
+  ui::SetNativeWindowTitle(it->second.widget,
+                           app_name != nullptr && app_name[0] != '\0'
+                               ? std::string(app_name)
+                               : base::UTF16ToUTF8(title));
 #endif
 }
 

@@ -36,6 +36,8 @@
 #include <Path.h>
 #include <ScrollView.h>
 #include <TextControl.h>
+#include <Node.h>
+#include <NodeInfo.h>
 #include <Window.h>
 
 #include <time.h>
@@ -1283,6 +1285,123 @@ void SetBrowserChromeInstallable(gfx::AcceleratedWidget widget,
   if (chrome != nullptr)
     chrome->SetInstallable(installable, app_name);
   window->Unlock();
+}
+
+void SetNativeWindowTitle(gfx::AcceleratedWidget widget,
+                          const std::string& title) {
+  BWindow* window = NativeWindowFor(widget);
+  if (window == nullptr || title.empty() || !window->Lock())
+    return;
+  window->SetTitle(title.c_str());
+  window->Unlock();
+}
+
+namespace {
+
+// Box-filter one axis-aligned rectangle of the source into one destination
+// pixel. Averaging rather than picking a nearest neighbour because these are
+// large downscales -- a 512x512 manifest icon into 16x16 -- and a nearest
+// neighbour of that ratio keeps one pixel in a thousand and looks like noise.
+uint32_t AveragePixels(const uint32_t* argb,
+                       int width,
+                       int height,
+                       int x0,
+                       int y0,
+                       int x1,
+                       int y1) {
+  if (x1 <= x0)
+    x1 = x0 + 1;
+  if (y1 <= y0)
+    y1 = y0 + 1;
+  if (x1 > width)
+    x1 = width;
+  if (y1 > height)
+    y1 = height;
+
+  uint32_t a_sum = 0, r_sum = 0, g_sum = 0, b_sum = 0, n = 0;
+  for (int y = y0; y < y1; ++y) {
+    for (int x = x0; x < x1; ++x) {
+      const uint32_t p = argb[y * width + x];
+      const uint32_t a = (p >> 24) & 0xff;
+      // Weight colour by coverage so a transparent edge does not drag the
+      // average toward whatever colour happens to sit behind it.
+      a_sum += a;
+      r_sum += ((p >> 16) & 0xff) * a;
+      g_sum += ((p >> 8) & 0xff) * a;
+      b_sum += (p & 0xff) * a;
+      ++n;
+    }
+  }
+  if (n == 0)
+    return 0;
+  const uint32_t a = a_sum / n;
+  if (a_sum == 0)
+    return 0;
+  const uint32_t r = r_sum / a_sum;
+  const uint32_t g = g_sum / a_sum;
+  const uint32_t b = b_sum / a_sum;
+  return (a << 24) | (r << 16) | (g << 8) | b;
+}
+
+// Haiku's B_RGBA32 is byte order B, G, R, A on a little-endian machine, and
+// the bitmap wants premultiplied alpha.
+bool FillIconBitmap(BBitmap* bitmap,
+                    const uint32_t* argb,
+                    int width,
+                    int height,
+                    int side) {
+  uint8* bits = static_cast<uint8*>(bitmap->Bits());
+  if (bits == nullptr)
+    return false;
+  const int32 row_bytes = bitmap->BytesPerRow();
+  for (int y = 0; y < side; ++y) {
+    uint8* row = bits + y * row_bytes;
+    for (int x = 0; x < side; ++x) {
+      const uint32_t p =
+          AveragePixels(argb, width, height, x * width / side,
+                        y * height / side, (x + 1) * width / side,
+                        (y + 1) * height / side);
+      const uint32_t a = (p >> 24) & 0xff;
+      row[x * 4 + 0] = static_cast<uint8>(((p & 0xff) * a) / 255);
+      row[x * 4 + 1] = static_cast<uint8>((((p >> 8) & 0xff) * a) / 255);
+      row[x * 4 + 2] = static_cast<uint8>((((p >> 16) & 0xff) * a) / 255);
+      row[x * 4 + 3] = static_cast<uint8>(a);
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+bool SetFileIcon(const std::string& path,
+                 const uint32_t* argb,
+                 int width,
+                 int height) {
+  if (argb == nullptr || width <= 0 || height <= 0)
+    return false;
+
+  BNode node(path.c_str());
+  if (node.InitCheck() != B_OK)
+    return false;
+  BNodeInfo info(&node);
+  if (info.InitCheck() != B_OK)
+    return false;
+
+  bool any = false;
+  const struct {
+    int side;
+    icon_size which;
+  } sizes[] = {{32, B_LARGE_ICON}, {16, B_MINI_ICON}};
+  for (const auto& entry : sizes) {
+    BBitmap bitmap(BRect(0, 0, entry.side - 1, entry.side - 1), B_RGBA32);
+    if (bitmap.InitCheck() != B_OK)
+      continue;
+    if (!FillIconBitmap(&bitmap, argb, width, height, entry.side))
+      continue;
+    if (info.SetIcon(&bitmap, entry.which) == B_OK)
+      any = true;
+  }
+  return any;
 }
 
 }  // namespace ui
