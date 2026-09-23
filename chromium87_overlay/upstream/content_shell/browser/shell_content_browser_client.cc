@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/no_destructor.h"
 #include "base/path_service.h"
@@ -467,6 +468,34 @@ void ShellContentBrowserClient::ConfigureNetworkContextParamsForShell(
           "cors_exempt_header_list");
   if (!exempt_header.empty())
     context_params->cors_exempt_header_list.push_back(exempt_header);
+
+#if defined(OS_HAIKU)
+  // RCHROMIUM persistent profile.
+  //
+  // content_shell keeps everything in memory: it sets neither http_cache_path
+  // nor cookie_path, so there is no disk cache and no cookie file. That is
+  // right for a test binary and wrong for a browser somebody uses. Two things
+  // follow from it, and both were measured on the VAIO:
+  //
+  //   - A login cannot survive a restart. Session cookies are all there are.
+  //   - Every launch is a cold one. Running x.com twice in a row left the
+  //     profile directory at 16 KB both times, so the 1.3 MB main.js was
+  //     fetched and compiled from scratch each time. On a 1.33 GHz Atom that
+  //     is most of the two minutes the page takes to appear -- and when it
+  //     takes too long x.com gives up by itself and shows "Something went
+  //     wrong", which is the bug this is chasing.
+  base::FilePath profile = context->GetPath();
+  if (!context->IsOffTheRecord() && !profile.empty()) {
+    context_params->http_cache_path =
+        profile.Append(FILE_PATH_LITERAL("Cache"));
+    context_params->cookie_path =
+        profile.Append(FILE_PATH_LITERAL("Cookies"));
+    // Without these two the cookie file exists but a session cookie -- which
+    // is what a login is until it is renewed -- is still dropped on exit.
+    context_params->restore_old_session_cookies = true;
+    context_params->persist_session_cookies = true;
+  }
+#endif
 }
 
 }  // namespace content

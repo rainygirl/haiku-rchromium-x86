@@ -571,6 +571,24 @@ bool Shell::DidAddMessageToConsole(WebContents* source,
                                    const base::string16& message,
                                    int32_t line_no,
                                    const base::string16& source_id) {
+#if defined(OS_HAIKU)
+  // content_shell drops console messages unless it is running web tests, and
+  // on this port DevTools does not answer while the page is busy -- so a page
+  // that fails in JavaScript fails silently, which is how x.com's login could
+  // say "Something went wrong" while the net log showed no failed request at
+  // all. Print them.
+  const char* level = "log";
+  switch (log_level) {
+    case blink::mojom::ConsoleMessageLevel::kVerbose: level = "verbose"; break;
+    case blink::mojom::ConsoleMessageLevel::kInfo:    level = "info"; break;
+    case blink::mojom::ConsoleMessageLevel::kWarning: level = "warn"; break;
+    case blink::mojom::ConsoleMessageLevel::kError:   level = "ERROR"; break;
+  }
+  fprintf(stderr, "[JS] %s %s:%d  %s\n", level,
+          base::UTF16ToUTF8(source_id).c_str(), line_no,
+          base::UTF16ToUTF8(message).c_str());
+  fflush(stderr);
+#endif
   return switches::IsRunWebTestsSwitchPresent();
 }
 

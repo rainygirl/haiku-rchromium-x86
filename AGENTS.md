@@ -1435,6 +1435,90 @@ included.
 Killing input_server to reload the add-on also takes Deskbar and Tracker's
 window decorations with it; a reboot restores them.
 
+**Correction (2026-09-23): a posted BMessage does reach the page -- if it is
+posted to the view.** The claim above is half right. `BWindow::DispatchMessage`
+only turns a `B_KEY_DOWN` into `BView::KeyDown` when the message is dispatched
+*to a view*; sent to the window's own handler it falls through to
+`MessageReceived` and the page never sees it, which is what the earlier
+attempt measured. Ask the window for its view first and the keys arrive:
+
+    BMessenger app(NULL, team);
+    BMessage get(B_GET_PROPERTY), reply;
+    get.AddSpecifier("Messenger");
+    get.AddSpecifier("Window", 0);
+    app.SendMessage(&get, &reply);          // -> the window
+    // then the same again on that messenger with AddSpecifier("View", 0)
+
+`scripts/sendkeys.cpp` does this. Confirmed by typing into a page whose
+keydown listener logged `key="a" code=KeyA`, and the input's value became
+`"abc"`. It needs no add-on, no input_server restart, and cannot take the
+keyboard away from whoever is using the machine -- which makes it the right
+tool for driving a login flow unattended. Haiku's `ps` prints the team id four
+columns from the end, not second: the command column is padded and contains
+spaces, so `$2` is part of the command.
+
+## content_shell keeps no cookies, so a login cannot survive (fixed 2026-09-23)
+
+`ShellContentBrowserClient::ConfigureNetworkContextParamsForShell` sets
+neither `http_cache_path` nor `cookie_path`. For a test binary that is right.
+For a browser somebody uses it means:
+
+  - **A login cannot survive a restart.** Session cookies are all there are.
+    So "log in to x.com" was not achievable at all before this, however well
+    the login page itself worked.
+  - **Every launch is a cold one.** Running x.com twice in a row left the
+    profile directory at 16 kB both times and the second launch was no faster.
+    The 1.3 MB `main.js` is fetched and compiled from scratch each time, which
+    on a 1.33 GHz Atom is most of the two minutes before the page appears.
+
+The profile did exist -- `/boot/home/config/settings/content_shell`, 60 kB,
+holding `DevToolsActivePort` and `databases-off-the-record` and nothing else.
+That emptiness is the symptom to look for.
+
+**Only the cookies were moved to disk, and the HTTP cache deliberately was
+not.** `InitializeBrowserContexts()` makes this port's context off-the-record
+on purpose, and its comment names `disk_cache` as one of the subsystems whose
+on-disk form corrupts the renderer's V8 heap in `--single-process`. Cookies do
+not go through `disk_cache`; they are sqlite on the network service's own
+sequence. So the fix sets `cookie_path` from `context->GetPath()` plus
+`restore_old_session_cookies` and `persist_session_cookies` -- without those
+two the file exists but a session cookie, which is what a login is until it is
+renewed, is still dropped on exit. Measured after: a 20 kB `Cookies` file that
+survives exit, no crash, page renders as before. The cold-start cost stays.
+
+**The first version of this patch did nothing at all**, because it was guarded
+on `!context->IsOffTheRecord()` -- which on this port is always false. The
+symptom was that no `Cookies` file appeared. Check for the file, not for the
+code being present.
+
+Note also that `--user-data-dir` is Chrome's switch and content_shell does not
+read it. content_shell's is `--data-path` (`shell_browser_context.cc:125`).
+R Twitter had been passing the former, so it silently shared R Chromium's
+profile.
+
+## x.com serves two web apps, and only the older one runs here (2026-09-23)
+
+`https://x.com/` and `https://x.com/home` are different applications.
+
+  - `/` (logged out) is a Vite/rolldown build under
+    `abs.twimg.com/x-web/x-web/`. Its entry module uses **top-level await**,
+    which ES modules got in Chrome 89. On 87 V8 stops at `SyntaxError:
+    Unexpected reserved word`, the app never starts, and the browser shows
+    x.com's no-JavaScript fallback -- a plain page whose login form leads
+    nowhere. Deterministic, and the user agent makes no difference: spoofing
+    Chrome 87 gets the same bundle as the Chrome 999 this port claims.
+  - `/home` is the older `abs.twimg.com/responsive-web/client-web/` React app.
+    It parses and runs, logged out as well as in, and its login flow works end
+    to end -- driven with `scripts/sendkeys.cpp`, a wrong password came back
+    "The password you entered is incorrect" from the server.
+
+So R Twitter opens `/home`. This is also the reason the browser's own
+address-bar start page should avoid bare `x.com`.
+
+A warning about diagnosing this one: `--log-net-log` is not free here. With it
+on, x.com stayed on its splash screen for seventeen minutes; with it off the
+same build reached the login form in two. The instrument changed the symptom.
+
 ## The GCC GC wrapper keeps `-j2` alive, and it made the build faster (2026-08-24)
 
 Page exhaustion, not the quota deadlock, is what was panicking the machine at
