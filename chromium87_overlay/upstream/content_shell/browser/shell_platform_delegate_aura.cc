@@ -30,6 +30,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "haiku_port/ozone/haiku_browser_chrome.h"
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -842,6 +843,41 @@ void OnIconDownloaded(const base::FilePath& launcher,
   fflush(stderr);
 }
 
+// Put the app in Deskbar's Applications menu.
+//
+// Deskbar does not scan ~/config/non-packaged/apps. It lists what is in
+// ~/config/settings/deskbar/menu/Applications, which is a directory of
+// symlinks -- every application on this machine that is not part of a package
+// is in there as a link, Prehistorik and RChromium included. Writing the
+// launcher without this leaves an app that exists and cannot be found, which
+// is what the first version of this code did.
+bool LinkIntoDeskbar(const base::FilePath& launcher,
+                     const std::string& app_name,
+                     std::string* error) {
+  const char* home = getenv("HOME");
+  if (home == nullptr)
+    home = "/boot/home";
+  const base::FilePath menu = base::FilePath(home)
+                                  .Append("config")
+                                  .Append("settings")
+                                  .Append("deskbar")
+                                  .Append("menu")
+                                  .Append("Applications");
+  base::File::Error mkdir_error = base::File::FILE_OK;
+  if (!base::CreateDirectoryAndGetError(menu, &mkdir_error)) {
+    *error = "cannot create " + menu.value();
+    return false;
+  }
+  const base::FilePath link = menu.Append(app_name);
+  // Replace an older link to the same app rather than failing on it.
+  unlink(link.value().c_str());
+  if (symlink(launcher.value().c_str(), link.value().c_str()) != 0) {
+    *error = "cannot link " + link.value();
+    return false;
+  }
+  return true;
+}
+
 void OnManifestForInstall(WebContents* web_contents,
                           const blink::Manifest& manifest) {
   std::string why_not;
@@ -870,8 +906,12 @@ void OnManifestForInstall(WebContents* web_contents,
   }
 
   const base::FilePath launcher = dir.Append(app_name);
-  fprintf(stderr, "[RCH] installed \"%s\" -> %s\n", app_name.c_str(),
-          launcher.value().c_str());
+
+  std::string link_error;
+  const bool linked = LinkIntoDeskbar(launcher, app_name, &link_error);
+  fprintf(stderr, "[RCH] installed \"%s\" -> %s (deskbar: %s)\n",
+          app_name.c_str(), launcher.value().c_str(),
+          linked ? "listed" : link_error.c_str());
   fflush(stderr);
 
   // The icon comes after: the app is already usable without one, and a
