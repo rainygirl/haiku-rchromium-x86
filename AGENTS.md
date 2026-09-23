@@ -1476,7 +1476,44 @@ INT -> TERM -> KILL with a full minute at each step.
    properly. Starting a second ninja by hand is the one thing that makes this
    worse, and the watchdog is already trying to restart.
 
-## Recurring: the wireless dies during long builds (2026-08-25)
+## Recurring: the wireless dies during long builds (2026-08-25; cause found 2026-09-23)
+
+**The prime suspect below is wrong.** The section names a PCI D3/D0 power
+cycle in `if_ath.c` as the likely mechanism and says to grep for
+`repeated beacon miss recovery, power-cycling the adapter` after the next
+occurrence. That was done on 2026-09-23, after a half-hour outage under a
+compression run, and the line is not in any syslog on the machine -- not that
+day, not the day before. The escalation never fires.
+
+What the log shows instead is a roam that loses the lease:
+
+	11:24:51 wlan: beacon miss, mode STA state RUN
+	11:24:52 ieee80211_new_state_locked: RUN -> SCAN
+	11:24:52 /dev/net/atheroswifi/0: link down
+	11:24:52 Send DHCP_RELEASE to 10.0.0.1:67
+	11:24:54 [e8:48:b8:28:a5:8a] station assoc via MLME     <- a different AP
+	         (nothing further: no link up, no DHCP, for thirty minutes)
+	11:30:50 /dev/net/atheroswifi/0: link down
+	11:54:02 (after reboot) link up -> DHCP_DISCOVER -> 10.0.0.132
+
+The adapter associates with the new access point and the driver never reports
+`link up` for it, so Haiku's DHCP client -- which has just released the
+address on the way out -- never asks for another one. Associated, no IP, until
+reboot. `bb hang detected (0x4), resetting` appears 89 times across the same
+period, which is the load side of it, but the outage itself is the missing
+link-up.
+
+Load is the trigger rather than the cause: beacon misses cluster when the CPU
+is pinned, and each one is a chance to roam. That makes "do not pin the CPU
+for hours" a real mitigation (see the repackaging section: `package create -0`
+turned a two-hour compression into one minute), and it makes the driver's
+link-up reporting after a roam the thing to fix.
+
+The rest of this section is kept as written, including the wrong hypothesis,
+because the reasoning that produced it is sound and only the conclusion was
+untested.
+
+### Original notes (2026-08-25)
 
 Twice on 2026-08-25 -- around 08:11 and again around 11:00 -- the machine went
 unreachable over both Tailscale and the LAN while a build was running. The user
