@@ -1342,6 +1342,79 @@ blob repair. `linkretry-verified.sh` and its ladder remain for a machine
 without the package, and the two gates stay on principle -- but the thing they
 were built to survive has a solution now.
 
+## Installing a web app as a Haiku application (2026-09-23)
+
+The toolbar grows an install button on a page that carries a usable web app
+manifest, and pressing it writes a Haiku application.
+
+Chrome's version of this lives in `chrome/browser/web_applications`, which
+content_shell does not have. It did not need it: the content layer already
+exposes everything the answer requires.
+
+	content/public/browser/web_contents.h:979  GetManifest(GetManifestCallback)
+	content/public/browser/web_contents.h:941  DownloadImage(...)
+
+So the whole feature is about 250 lines in
+`shell_platform_delegate_aura.cc` plus a button in `haiku_beapi_views.cc`.
+
+**What an install produces.**
+
+	~/config/non-packaged/apps/<Name>/<Name>          the launcher, +x
+	~/config/settings/deskbar/menu/Applications/<Name>  a symlink to it
+
+The launcher is a shell script that runs *this* content_shell at the
+manifest's `start_url` with `RCH_NO_TOOLBAR=1`, `RCH_APP_NAME=<Name>` and its
+own `--user-data-dir`. A script and not a copied binary: content_shell is
+219 MB and an installed app is not a second browser, it is the same browser
+pointed at one URL. Tracker runs an executable script on double-click and
+Deskbar lists it, so a script is a first-class application here. Deleting the
+directory and the link uninstalls it.
+
+**Deskbar does not scan `~/config/non-packaged/apps`.** It lists the symlinks
+in `~/config/settings/deskbar/menu/Applications`, which is how every
+non-packaged app on this machine is registered. The first version of this
+code assumed otherwise and produced apps that existed and could not be found.
+
+**The installability test** is Chrome's minus the service worker: a manifest,
+a valid `start_url`, a `name` or `short_name`, a `display` of
+standalone/fullscreen/minimal-ui, and at least one icon with purpose `any` or
+`maskable`. Chrome also requires a fetch handler, because an installed app
+there is expected to work offline; here it is a Deskbar entry that opens a
+URL, which is useful either way, and requiring one would rule out most of
+what anyone would want to install on this machine. Measured:
+
+	x.com             installable=1  name="X"        standalone  4 icons
+	squoosh.app       installable=1  name="Squoosh"  standalone  2 icons
+	news.naver.com    installable=0  no manifest
+	www.google.com    installable=0  no manifest
+	ko.wikipedia.org  installable=0  no manifest
+
+**The icon** is the largest square one the manifest declares (a vector beats
+any raster), fetched with `DownloadImage()` and written into the launcher's
+Haiku icon attributes at 32x32 and 16x16. Squoosh's is 512x512; the downscale
+is a box filter, because at that ratio a nearest neighbour keeps one pixel in
+a thousand and looks like noise, and alpha weights the average so a
+transparent edge does not drag the colour toward what sits behind it. It is
+fetched *after* the launcher is written, so a failed download leaves a working
+app rather than no app.
+
+**The window title.** `ShellPlatformDelegate::SetTitle()` only ever told the
+toolbar, so with the toolbar off nothing set the BWindow's title and every
+installed app was called "R Chromium". `SetNativeWindowTitle()` does it now. A
+browser window follows the page; an installed app keeps `RCH_APP_NAME`,
+because it is one application and a window that renames itself as the user
+moves around inside it does not look like one.
+
+**Testing it without a person at the machine.** `RCH_INSTALL_AFTER=<seconds>`
+presses the button on a timer, the same way `RCH_NAV_AFTER` drives the address
+bar. This machine is a laptop reached over ssh with no way to click anything,
+and a feature that can only be tested by someone standing at it will not be
+tested.
+
+The content/BeAPI boundary holds: icon pixels cross it as plain `uint32`
+`0xAARRGGBB`, which is `SkColor`'s layout, so content/shell never names a
+BeAPI type and the ozone side never names a Skia one.
+
 ## Injecting keystrokes for a real test (2026-09-20)
 
 Verifying "can you type into the page" needs the keys to travel the road a
