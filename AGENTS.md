@@ -249,6 +249,63 @@ Then install with `install_to_desktop.sh` as described in `README.md`. The
 overlay attach / Chromium 87 bootstrap / bring-up order that produce the
 objects the link consumes are the sections below.
 
+## Repackaging: never compress on this machine (2026-09-23)
+
+`/boot/system/apps/RChromium` comes from the `rchromium_x86` package, and it
+is what R Twitter runs -- `src/main.cpp` looks there first, then
+`~/config/non-packaged/apps/RChromium`, then `~/RChromium`. Installing a new
+binary into `~/RChromium` therefore changes nothing for R Twitter while the
+package is active.
+
+To replace it:
+
+```sh
+mkdir -p /boot/home/pkgbak && cp /boot/system/packages/rchromium_x86-*.hpkg /boot/home/pkgbak/
+mkdir -p /boot/home/pkgwork && cd /boot/home/pkgwork
+package extract /boot/system/packages/rchromium_x86-*.hpkg
+cp -f /boot/home/RChromium/content_shell apps/RChromium/content_shell
+# bump the version in .PackageInfo, or pkgman will not see a change
+package create -0 -C . -i .PackageInfo /boot/home/newpkg.hpkg
+pkgman install -y /boot/home/newpkg.hpkg
+```
+
+**`-0`, always.** `package create` defaults to compression level 9. On the
+Atom Z520 that ran at about 2 MB of output every ten minutes against a 219 MB
+binary -- more than two hours of solid CPU, and it had not finished. With
+`-0` the same package took **one minute**. The cost is 233 MB instead of 92 MB
+on a volume with 205 GB free.
+
+That is not only a matter of patience. The wireless on this machine dies under
+sustained load, and on 2026-09-23 the compression run took it out for half an
+hour. The syslog says what actually happens, and it is **not** the
+PCI D3 power-cycle this file has blamed since 2026-08-25 -- that line has
+never once appeared:
+
+	11:24:51 wlan: beacon miss, mode STA state RUN
+	11:24:52 ieee80211_new_state_locked: RUN -> SCAN
+	11:24:52 /dev/net/atheroswifi/0: link down
+	11:24:52 Send DHCP_RELEASE to 10.0.0.1:67
+	11:24:54 [e8:48:b8:28:a5:8a] station assoc via MLME     <- a *different* AP
+	         (no link up, no DHCP, for the next thirty minutes)
+
+The adapter roams to another access point, the stack releases the lease on the
+way out, and then no `link up` is reported for the new association -- so the
+DHCP client never asks for an address again. The machine is associated, has no
+IP, and stays that way until reboot. Keeping the CPU off the floor is the
+cheap half of avoiding it.
+
+**`pkgman install`, not a file copy.** Dropping an .hpkg into
+`/boot/system/packages` by hand does not work: `administrative/activated-packages`
+is what packagefs reads, and a file that is not listed there is ignored
+(silently after a reboot, and with `failed to init package` before one --
+including for the *old* package, once its name had been through that). Use
+`pkgman install <file>`; it writes the activation state and backs the old one
+up under `administrative/state_<date>`.
+
+And do not reach for `pkgman full-sync` to unstick it. That is a whole-system
+upgrade, not a repair -- it was run here by mistake and only the download
+failing kept it from replacing 40-odd unrelated packages.
+
 ## Attaching to a synced Chromium checkout
 
 ```sh
