@@ -1496,6 +1496,53 @@ read it. content_shell's is `--data-path` (`shell_browser_context.cc:125`).
 R Twitter had been passing the former, so it silently shared R Chromium's
 profile.
 
+## Presenting a frame threw the damage rect away (fixed 2026-09-24)
+
+`HaikuCanvas::PresentCanvas(const gfx::Rect& damage)` had the region viz
+repainted and ignored it. Every frame was a full-window `memcpy` into the
+BBitmap plus a bare `Invalidate()`, so app_server then drew the whole bitmap
+again -- twice the window in memory traffic per frame, for a blinking text
+caret as readily as for a page load. There is no GPU here, so that is all CPU.
+
+Fixed by passing `damage` through to `HaikuContentView::Present` and copying
+and invalidating only that rectangle. An empty rect, a resize and a first
+paint still mean "all of it".
+
+Measured on x.com/home at 1000x700, the same harness alternating between the
+old package binary and the new one, four runs each:
+
+	before  50, 51, 46, 50 s   (mean 49)
+	after   45, 39, 45, 39 s   (mean 42)
+
+Consistent but smaller than predicted. The prediction of ~20 s came from
+400x300 loading in 27 s against 1000x700's 43 s, read as a cost proportional
+to pixels; the screenshots say otherwise -- 64450 b against 98962 b, so x.com
+renders a **different, lighter layout** in a narrow window and most of that
+gap was never ours to win.
+
+Removed with it: the per-frame `fprintf`s in `Present`, `Draw` and
+`GetCanvas`. Those ran unconditionally, not behind any logging flag, so a
+Deskbar launch paid for the formatting and an unbuffered `write` several times
+per frame. They also made the load *measurably* slower when stderr pointed at
+a file on the VAIO's disk, which is how several timings in this file came to
+be overstated -- see the `--log-net-log` warning below.
+
+### Where the time actually goes
+
+Per-thread CPU, sampled through a load:
+
+	Chrome_InProcRen (JS, style, layout)   ~33%
+	ThreadPoolForeground (raster, decode)  ~10-20% across several
+	VizCompositorThread (software compose) ~7-10%
+	NetworkService                         2-9%
+	Compositor                             2-6%
+
+Half of it is x.com's JavaScript on the renderer's main thread, on a 1.33 GHz
+in-order Atom. That half is not ours to fix. Caching does not touch it either:
+with an on-disk profile the HTTP cache reached 12 MB and the V8 code cache
+3.2 MB, and four consecutive launches still took the same time, because the
+cost is execution rather than fetching or compiling.
+
 ## x.com serves two web apps, and only the older one runs here (2026-09-23)
 
 `https://x.com/` and `https://x.com/home` are different applications.

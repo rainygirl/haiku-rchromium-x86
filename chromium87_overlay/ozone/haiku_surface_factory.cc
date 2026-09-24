@@ -31,14 +31,6 @@ class HaikuCanvas : public SurfaceOzoneCanvas {
   }
 
   SkCanvas* GetCanvas() override {
-    // Rate-limited on purpose: this is called once per composited frame, and
-    // the question it answers is only "is anything being drawn at all". A
-    // browser that paints once and then stops looks identical from the
-    // PresentCanvas side whether the compositor never scheduled another frame
-    // or drew one that never reached the BView.
-    static int calls = 0;
-    if (++calls <= 3 || calls % 60 == 0)
-      fprintf(stderr, "[RCH] GetCanvas #%d\n", calls);
     return surface_ == nullptr ? nullptr : surface_->getCanvas();
   }
 
@@ -53,24 +45,19 @@ class HaikuCanvas : public SurfaceOzoneCanvas {
   }
 
   void PresentCanvas(const gfx::Rect& damage) override {
-    if (surface_ == nullptr) {
-      fprintf(stderr, "[RCH] PresentCanvas: no surface\n");
+    if (surface_ == nullptr)
       return;
-    }
     SkPixmap pixels;
-    if (!surface_->peekPixels(&pixels)) {
-      fprintf(stderr, "[RCH] PresentCanvas: peekPixels failed\n");
+    if (!surface_->peekPixels(&pixels))
       return;
-    }
     const gfx::AcceleratedWidget widget = ResolvedWidget();
     HaikuContentView* view = manager_->FindView(widget);
-    fprintf(stderr,
-            "[RCH] PresentCanvas %dx%d view=%p widget=%lu (given %lu)\n",
-            pixels.width(), pixels.height(), (void*)view,
-            (unsigned long)widget, (unsigned long)widget_);
     if (view != nullptr) {
+      // `damage` was dropped here until 2026-09-24, which made every frame a
+      // full-window copy plus a full-window Invalidate -- twice the size of
+      // the window in memcpy for a blinking caret.
       view->Present(pixels.addr(), pixels.width(), pixels.height(),
-                    pixels.rowBytes());
+                    pixels.rowBytes(), damage);
     }
   }
 

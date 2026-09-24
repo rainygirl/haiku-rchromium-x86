@@ -52,7 +52,17 @@ class HaikuContentView : public BView {
                 BoundsSink bounds_sink,
                 CloseSink close_sink);
 
-  void Present(const void* pixels, int width, int height, size_t row_bytes);
+  // `damage` is the region viz actually repainted, in canvas pixels. Copying
+  // and invalidating only that is worth doing here: without a GPU every frame
+  // is a full-size memcpy into the BBitmap and then app_server drawing the
+  // whole bitmap again, and a blinking text caret alone was repeating both
+  // over the entire window several times a second. An empty rect means "all
+  // of it", which is what a resize or a first paint wants.
+  void Present(const void* pixels,
+               int width,
+               int height,
+               size_t row_bytes,
+               const gfx::Rect& damage);
 
   // The window's close button was pressed. Called on the looper thread; hands
   // the request to the UI thread. Returns false if no sink is wired up yet.

@@ -154,7 +154,7 @@ bool HaikuContentView::RequestClose() {
 
 void HaikuContentView::Draw(BRect update_rect) {
   BAutolock lock(&frame_lock_);
-  fprintf(stderr, "[RCH] Draw frame=%p\n", (void*)frame_.get());
+  // No logging here: Draw runs once per presented frame.
   if (frame_ != nullptr)
     DrawBitmap(frame_.get(), update_rect, update_rect);
 }
@@ -184,11 +184,15 @@ void HaikuContentView::AttachedToWindow() {
 void HaikuContentView::Present(const void* pixels,
                                int width,
                                int height,
-                               size_t row_bytes) {
-  fprintf(stderr, "[RCH] View::Present %dx%d pixels=%p\n", width, height,
-          pixels);
+                               size_t row_bytes,
+                               const gfx::Rect& damage) {
   if (pixels == nullptr || width <= 0 || height <= 0)
     return;
+
+  // Clip the damage to the frame, and treat an empty rect as the whole thing.
+  gfx::Rect dirty = damage;
+  dirty.Intersect(gfx::Rect(0, 0, width, height));
+  bool full = dirty.IsEmpty();
 
   {
     BAutolock lock(&frame_lock_);
@@ -200,20 +204,38 @@ void HaikuContentView::Present(const void* pixels,
         frame_.reset();
         return;
       }
+      // A bitmap that was just created holds nothing, so the damage viz
+      // reports is not enough to fill it.
+      full = true;
     }
 
     auto* destination = static_cast<uint8*>(frame_->Bits());
     const size_t destination_stride = frame_->BytesPerRow();
     const auto* source = static_cast<const uint8*>(pixels);
-    const size_t copy_bytes = std::min(destination_stride, row_bytes);
-    for (int y = 0; y < height; ++y)
-      std::memcpy(destination + y * destination_stride,
-                  source + y * row_bytes, copy_bytes);
+    if (full) {
+      const size_t copy_bytes = std::min(destination_stride, row_bytes);
+      for (int y = 0; y < height; ++y)
+        std::memcpy(destination + y * destination_stride,
+                    source + y * row_bytes, copy_bytes);
+    } else {
+      // Both buffers are 32-bit, so a column offset is four bytes per pixel.
+      const size_t offset = static_cast<size_t>(dirty.x()) * 4;
+      const size_t copy_bytes = static_cast<size_t>(dirty.width()) * 4;
+      for (int y = dirty.y(); y < dirty.bottom(); ++y)
+        std::memcpy(destination + y * destination_stride + offset,
+                    source + y * row_bytes + offset, copy_bytes);
+    }
   }
 
   BWindow* window = Window();
   if (window != nullptr && window->Lock()) {
-    Invalidate();
+    if (full) {
+      Invalidate();
+    } else {
+      // Draw() gets this rect as its update_rect and blits just that much.
+      Invalidate(BRect(dirty.x(), dirty.y(), dirty.right() - 1,
+                       dirty.bottom() - 1));
+    }
     window->Unlock();
   }
 }
