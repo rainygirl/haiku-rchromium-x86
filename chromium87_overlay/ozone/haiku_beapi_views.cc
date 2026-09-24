@@ -362,11 +362,12 @@ void HaikuContentView::DispatchKey(EventType type,
       key_code = DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
   }
 
-  static int keys = 0;
-  fprintf(stderr,
-          "[RCH] key #%d type=%d vk=%d code=%d char=%d\n", ++keys,
-          static_cast<int>(type), static_cast<int>(key_code),
-          static_cast<int>(dom_code), static_cast<int>(character));
+  // Nothing is printed here, and nothing about a key press may be. This line
+  // used to log `char=` for every key, which put whatever was being typed --
+  // passwords included -- into stderr, and from there into any file stderr
+  // was pointed at. It survived because it was written while proving that
+  // keys arrived at all, and a debug print that names its own payload is
+  // exactly the kind that has to be deleted rather than quieted.
 
   Post(std::make_unique<KeyEvent>(type, key_code, dom_code, flags, dom_key,
                                   EventTimeForNow()));
