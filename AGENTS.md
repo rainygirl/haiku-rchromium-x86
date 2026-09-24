@@ -1527,6 +1527,29 @@ per frame. They also made the load *measurably* slower when stderr pointed at
 a file on the VAIO's disk, which is how several timings in this file came to
 be overstated -- see the `--log-net-log` warning below.
 
+### Capping the frame rate does nothing (measured 2026-09-24)
+
+`HaikuCanvas::CreateVSyncProvider()` returns nullptr, which leaves viz on its
+default 60 Hz timer, and compositing plus raster is about 40% of the CPU of a
+load -- all software, there being no GPU. The obvious inference is that the
+machine is being asked for frames it cannot deliver, so returning a
+`gfx::FixedVSyncProvider` with a longer interval should cut that work
+proportionally. `SoftwareOutputSurface::SwapBuffers` does read it and feed the
+display scheduler, so the mechanism is real.
+
+It makes no difference. x.com/home at 1000x700, three runs of each, alternated:
+
+	default (60 Hz)   44, 39, 40 s
+	33 ms   (30 Hz)   39, 41, 39 s
+	50 ms   (20 Hz)   39, 39, 39 s
+
+All inside the measurement's own granularity (each `top -d -n 1` sample takes
+five seconds). The reason is that 60 Hz is the rate at which frames are
+*offered*: the compositor already draws only when there is damage and already
+skips what it cannot keep up with, so lowering the ceiling changes nothing
+about how many frames are actually produced. The change was reverted; only
+this note is kept.
+
 ### Where the time actually goes
 
 Per-thread CPU, sampled through a load:
