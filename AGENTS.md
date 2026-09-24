@@ -186,6 +186,26 @@ before touching anything; if the watchdog is alive, let it do the restarting.
   `gn gen` reruns and every target gated on the new value's default is added or
   dropped -- but it does not touch compiler command strings for targets
   unaffected by the flags, so the objects already built for those stay valid.
+- `content_shell_version = "87.0.4280.144"` and
+  `content_shell_major_version = "87"` (added 2026-09-24). content_shell
+  declares these as GN args and defaults them to **999.77.34.5**, so that web
+  test expectations do not move when Chromium's version does. The user agent
+  is built from them, so an untouched build tells every site it is Chrome 999
+  while the engine is 87 -- a version that does not exist, paired with the
+  capabilities of one five years older. That is what an automated or spoofed
+  client looks like, and sites that fingerprint the browser can act on it:
+  x.com's integrity script probes for `crypto.randomUUID` (Chrome 92) and
+  `navigator.userAgentData` (Chrome 90), neither of which this engine has.
+  No source patch is needed, only the two args.
+
+  **This did not fix the bug it was chased for.** x.com's login was failing
+  with "Something went wrong" and the mismatch looked like a good explanation;
+  it was not. The real answer was on the page the whole time, under the
+  heading: "We've temporarily limited your login. Please try again later."
+  The account had been rate-limited -- in part by this project's own automated
+  login attempts with a deliberately wrong password, which is not a thing to
+  do to a real account. The argument for honest version numbers stands on its
+  own; it just was not the cause.
 
 ## Building and linking on the VAIO
 
