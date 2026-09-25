@@ -19,6 +19,20 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # -fstack-protector emits calls to __stack_chk_fail_local, which on Haiku
+    # lives in libssp_nonshared.a rather than in libroot. It is a static
+    # archive, so it has to come after the objects that reference it -- and
+    # extra_ldflags in the toolchain lands before them, which is why putting
+    # it there changed nothing. default_libs ends up in {{libs}}, at the end
+    # of the link line, which is where an archive belongs.
+    ("build/config/BUILD.gn",
+     'config("default_libs") {\n'
+     "  if (is_win) {",
+     'config("default_libs") {\n'
+     "  if (is_haiku) {\n"
+     '    libs = [ "ssp_nonshared" ]\n'
+     "  }\n"
+     "  if (is_win) {"),
     # Native pixmaps are dmabuf, and Haiku has no dmabuf. These three files
     # are gated on use_ozone, which Haiku satisfies without having any of
     # what they need -- and one of them reaches for the Vulkan headers on

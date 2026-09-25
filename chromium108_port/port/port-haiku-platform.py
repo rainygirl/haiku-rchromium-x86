@@ -27,6 +27,221 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # setproctitle rewrites argv in place so that ps shows something useful.
+    # Haiku has no such call, and Deskbar names a team after its executable
+    # regardless -- which the 87 port already recorded as a limitation. The
+    # #else arm below this block is an empty implementation, which is what
+    # Windows and macOS get for the same reason.
+    ("content/common/set_process_title.cc",
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_SOLARIS) && \\\n"
+     "    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA)",
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_SOLARIS) && \\\n"
+     "    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_HAIKU)"),
+    # Variations, field trials and the flags page each pick a platform name.
+    # Two of them already say "default BSD and Solaris to Linux to not break
+    # those builds"; Haiku is in the same position.
+    ("components/variations/client_filterable_state.cc",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || BUILDFLAG(IS_SOLARIS)",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || \\\n"
+     "    BUILDFLAG(IS_SOLARIS) || BUILDFLAG(IS_HAIKU)"),
+    ("components/variations/service/variations_service.cc",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || BUILDFLAG(IS_SOLARIS)",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || \\\n"
+     "    BUILDFLAG(IS_SOLARIS) || BUILDFLAG(IS_HAIKU)"),
+    ("components/flags_ui/flags_state.cc",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OPENBSD)\n"
+     "  return kOsLinux;",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OPENBSD) || BUILDFLAG(IS_HAIKU)\n"
+     "  return kOsLinux;"),
+
+    # Blink asks for its own stack bounds in two places, and both chains end
+    # in an #error. Same answer as partition_alloc and V8 got earlier:
+    # get_thread_info, which has carried stack_base and stack_end since BeOS.
+    ("third_party/blink/renderer/platform/wtf/stack_util.cc",
+     "#elif BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)\n"
+     "  return Threading::ThreadStackSize();\n"
+     "#else\n"
+     '#error "Stack frame size estimation not supported on this platform."',
+     "#elif BUILDFLAG(IS_WIN) && defined(COMPILER_MSVC)\n"
+     "  return Threading::ThreadStackSize();\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  thread_info info;\n"
+     "  if (get_thread_info(find_thread(nullptr), &info) == B_OK) {\n"
+     "    return static_cast<size_t>(reinterpret_cast<uintptr_t>(info.stack_end) -\n"
+     "                               reinterpret_cast<uintptr_t>(info.stack_base));\n"
+     "  }\n"
+     "  return 512 * 1024;\n"
+     "#else\n"
+     '#error "Stack frame size estimation not supported on this platform."'),
+    ("third_party/blink/renderer/platform/wtf/stack_util.cc",
+     "#else\n"
+     "#error Unsupported getStackStart on this platform.\n"
+     "#endif\n"
+     "}",
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  thread_info info;\n"
+     "  if (get_thread_info(find_thread(nullptr), &info) == B_OK)\n"
+     "    return info.stack_end;\n"
+     "  return nullptr;\n"
+     "#else\n"
+     "#error Unsupported getStackStart on this platform.\n"
+     "#endif\n"
+     "}"),
+
+    # FontCache::DeviceScaleFactor is declared for the platforms that call
+    # QueryRenderStyleForStrike, and font_platform_data.cc calls it from a
+    # block guarded the same way -- except the block also covers Haiku,
+    # because it is really about having a sandbox support object rather than
+    # about being Linux.
+    ("third_party/blink/renderer/platform/fonts/font_cache.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  // These are needed for calling QueryRenderStyleForStrike, since",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  // These are needed for calling QueryRenderStyleForStrike, since"),
+    # ...and the member those two accessors read, which is declared under a
+    # separate guard further down the same header. Exposing the accessors
+    # without it produced 1055 errors, all of them mine.
+    ("third_party/blink/renderer/platform/fonts/font_cache.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  static float device_scale_factor_;",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  static float device_scale_factor_;"),
+    ("third_party/blink/renderer/platform/fonts/font_cache.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "float FontCache::device_scale_factor_ = 1.0;",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "float FontCache::device_scale_factor_ = 1.0;"),
+
+    # SameSizeAsDocumentLoader is declared in an anonymous namespace in the
+    # .cc, while the friend declaration in the header names
+    # blink::SameSizeAsDocumentLoader -- a different type. clang lets the
+    # access through anyway; gcc does not. Making the nested class public is
+    # the smaller change: it is a size assertion reaching into a class, not
+    # a design anyone is defending.
+    ("third_party/blink/renderer/core/loader/document_loader.h",
+     "  friend struct SameSizeAsDocumentLoader;\n"
+     "  class BodyData;\n"
+     "  class EncodedBodyData;\n"
+     "  class DecodedBodyData;",
+     "  friend struct SameSizeAsDocumentLoader;\n"
+     "  class BodyData;\n"
+     "  class EncodedBodyData;\n"
+     "\n"
+     " public:\n"
+     "  // Public only so that SameSizeAsDocumentLoader, which lives in an\n"
+     "  // anonymous namespace and so is not the type the friend declaration\n"
+     "  // above names, can measure it. gcc enforces that; clang does not.\n"
+     "  class DecodedBodyData;\n"
+     "\n"
+     " private:"),
+
+    # openh264: SCHED_FIFO scheduling is already skipped on Android and
+    # Fuchsia, and sysctlbyname does not exist here. sysconf is the portable
+    # way to count processors and this file already uses it elsewhere.
+    ("third_party/openh264/src/codec/common/src/WelsThreadLib.cpp",
+     "#if !defined(__ANDROID__) && !defined(__Fuchsia__)\n"
+     "  err = pthread_attr_setscope (&at, PTHREAD_SCOPE_SYSTEM);",
+     "#if !defined(__ANDROID__) && !defined(__Fuchsia__) && !defined(__HAIKU__)\n"
+     "  err = pthread_attr_setscope (&at, PTHREAD_SCOPE_SYSTEM);"),
+    ("third_party/openh264/src/codec/common/src/WelsThreadLib.cpp",
+     "#if defined(__OpenBSD__)\n"
+     "  int scname[] = { CTL_HW, HW_NCPU };\n"
+     "  if (sysctl (scname, 2, &pInfo->ProcessorCount, &len, NULL, 0) == -1)\n"
+     "#else\n"
+     "  if (sysctlbyname (HW_NCPU_NAME, &pInfo->ProcessorCount, &len, NULL, 0) == -1)\n"
+     "#endif",
+     "#if defined(__HAIKU__)\n"
+     "  pInfo->ProcessorCount = sysconf (_SC_NPROCESSORS_ONLN);\n"
+     "  if (pInfo->ProcessorCount < 1)\n"
+     "#elif defined(__OpenBSD__)\n"
+     "  int scname[] = { CTL_HW, HW_NCPU };\n"
+     "  if (sysctl (scname, 2, &pInfo->ProcessorCount, &len, NULL, 0) == -1)\n"
+     "#else\n"
+     "  if (sysctlbyname (HW_NCPU_NAME, &pInfo->ProcessorCount, &len, NULL, 0) == -1)\n"
+     "#endif"),
+    # A run of per-platform chains, each ending in #error. Haiku answers the
+    # way a desktop Unix answers, because that is what it is.
+    ("components/sync_device_info/local_device_info_util.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return DeviceInfo::OsType::kFuchsia;\n"
+     "#else\n"
+     "#error Please handle your new device OS here.",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return DeviceInfo::OsType::kFuchsia;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  // No kHaiku in the sync enum, and inventing one would mean a server\n"
+     "  // change. kLinux is the closest thing the protocol can say.\n"
+     "  return DeviceInfo::OsType::kLinux;\n"
+     "#else\n"
+     "#error Please handle your new device OS here."),
+    ("components/sync_device_info/local_device_info_util.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return DeviceInfo::FormFactor::kUnknown;\n"
+     "#else\n"
+     "#error Please handle your new device OS here.",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return DeviceInfo::FormFactor::kUnknown;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  return DeviceInfo::FormFactor::kDesktop;\n"
+     "#else\n"
+     "#error Please handle your new device OS here."),
+
+    # Texture targets: Haiku has no GL, and this is asked for before anyone
+    # checks. GL_TEXTURE_2D is the answer Fuchsia gives and the one that
+    # means "nothing special".
+    ("gpu/command_buffer/common/gpu_memory_buffer_support.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return GL_TEXTURE_2D;\n"
+     "#elif BUILDFLAG(IS_NACL)",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "  return GL_TEXTURE_2D;\n"
+     "#elif BUILDFLAG(IS_NACL)"),
+
+    ("gpu/config/gpu_test_config.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return GPUTestConfig::kOsFuchsia;\n"
+     "#else\n"
+     '#error "unknown os"',
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  return GPUTestConfig::kOsFuchsia;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  return GPUTestConfig::kOsUnknown;\n"
+     "#else\n"
+     '#error "unknown os"'),
+
+    # Content settings are registered per platform from a bitmask. There is
+    # no PLATFORM_HAIKU bit and adding one would mean touching every
+    # registration; taking the Linux bit says the same thing about which
+    # settings exist on a desktop.
+    ("components/content_settings/core/browser/website_settings_registry.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  if (!(platform & PLATFORM_FUCHSIA))\n"
+     "    return nullptr;\n"
+     "#else\n"
+     '#error "Unsupported platform"',
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  if (!(platform & PLATFORM_FUCHSIA))\n"
+     "    return nullptr;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  if (!(platform & PLATFORM_LINUX))\n"
+     "    return nullptr;\n"
+     "#else\n"
+     '#error "Unsupported platform"'),
+
+    # navigator.platform. Unlike the user agent this one is read by scripts
+    # that branch on it, and "Haiku" is a string no site has ever seen. The
+    # reduced navigator.platform exists precisely so that sites stop
+    # branching on it, and every value in this list is already a fiction --
+    # Android reports "Linux armv81" whatever it is running on.
+    ("third_party/blink/renderer/core/execution_context/navigator_base.cc",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     '  return "Linux x86_64";\n'
+     "#else\n"
+     "#error Unsupported platform",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     '  return "Linux x86_64";\n'
+     "#else\n"
+     "#error Unsupported platform"),
     # Every use of ExternalSemaphore in this file is already behind
     # BUILDFLAG(ENABLE_VULKAN) -- eleven guards -- but the include is not,
     # and external_semaphore.h opens with <vulkan/vulkan_core.h>. With
@@ -1005,6 +1220,8 @@ edits = [
 ]
 
 includes = [
+    ("third_party/blink/renderer/platform/wtf/stack_util.cc",
+     '#include "third_party/blink/renderer/platform/wtf/stack_util.h"'),
     # <OS.h> is where find_thread, get_thread_info and thread_info live.
     ("base/allocator/partition_allocator/starscan/stack/stack.cc",
      '#include "base/allocator/partition_allocator/starscan/stack/stack.h"'),
