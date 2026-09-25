@@ -1,5 +1,7 @@
 #include "haiku_window.h"
 
+#include "haiku_cursor_factory.h"
+
 #include <AppDefs.h>
 #include <Cursor.h>
 #include <Autolock.h>
@@ -93,9 +95,12 @@ void HaikuWindow::OnBoundsFromLooper(const gfx::Rect& bounds) {
           bounds.height());
   if (bounds_ == bounds)
     return;
+  const bool origin_changed = bounds_.origin() != bounds.origin();
   bounds_ = bounds;
   manager_->SetWindowBounds(widget_, bounds_);
-  delegate()->OnBoundsChanged(bounds_);
+  // 87 -> 108: the delegate is handed a BoundsChange describing what moved
+  // rather than the new rectangle, which it reads back through GetBounds*.
+  delegate()->OnBoundsChanged({origin_changed});
 }
 
 void HaikuWindow::OnCloseFromLooper() {
@@ -161,7 +166,8 @@ bool HaikuWindow::IsVisible() const {
   return visible_;
 }
 
-void HaikuWindow::SetBounds(const gfx::Rect& bounds) {
+void HaikuWindow::SetBoundsInPixels(const gfx::Rect& bounds) {
+  const bool origin_changed = bounds_.origin() != bounds.origin();
   bounds_ = bounds;
   manager_->SetWindowBounds(widget_, bounds_);
   if (window_ != nullptr && window_->Lock()) {
@@ -170,10 +176,18 @@ void HaikuWindow::SetBounds(const gfx::Rect& bounds) {
     window_->ResizeTo(frame.Width(), frame.Height());
     window_->Unlock();
   }
-  delegate()->OnBoundsChanged(bounds_);
+  delegate()->OnBoundsChanged({origin_changed});
 }
 
-gfx::Rect HaikuWindow::GetBounds() {
+gfx::Rect HaikuWindow::GetBoundsInPixels() const {
+  return bounds_;
+}
+
+void HaikuWindow::SetBoundsInDIP(const gfx::Rect& bounds) {
+  SetBoundsInPixels(bounds);
+}
+
+gfx::Rect HaikuWindow::GetBoundsInDIP() const {
   return bounds_;
 }
 
@@ -223,7 +237,7 @@ void HaikuWindow::SetTopInset(int inset) {
   window_->Unlock();
 }
 
-void HaikuWindow::SetTitle(const base::string16& title) {
+void HaikuWindow::SetTitle(const std::u16string& title) {
   const std::string utf8 = base::UTF16ToUTF8(title);
   if (window_ != nullptr && window_->Lock()) {
     window_->SetTitle(utf8.c_str());
@@ -246,12 +260,12 @@ void HaikuWindow::Restore() {
     window_->Minimize(false);
 }
 
-void HaikuWindow::SetCursor(PlatformCursor cursor) {
-  // HaikuCursorFactory hands out BCursor*, so this is the whole of it: no
-  // bitmap is drawn by Chromium and app_server shows its own cursor.
+void HaikuWindow::SetCursor(scoped_refptr<PlatformCursor> cursor) {
+  // HaikuCursorFactory wraps a BCursor, so this is the whole of it: no bitmap
+  // is drawn by Chromium and app_server shows its own cursor.
   if (view_ == nullptr || window_ == nullptr || !window_->Lock())
     return;
-  view_->SetViewCursor(static_cast<const BCursor*>(cursor), true);
+  view_->SetViewCursor(BCursorFromPlatformCursor(cursor.get()), true);
   window_->Unlock();
 }
 

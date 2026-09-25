@@ -36,19 +36,23 @@ class HaikuClipboard : public PlatformClipboard {
                           OfferDataClosure callback) override;
   void RequestClipboardData(ClipboardBuffer buffer,
                             const std::string& mime_type,
-                            DataMap* data_map,
                             RequestDataClosure callback) override;
   void GetAvailableMimeTypes(ClipboardBuffer buffer,
                              GetMimeTypesClosure callback) override;
   bool IsSelectionOwner(ClipboardBuffer buffer) override;
-  void SetSequenceNumberUpdateCb(SequenceNumberUpdateCb cb) override;
+  void SetClipboardDataChangedCallback(
+      ClipboardDataChangedCallback callback) override;
   bool IsSelectionBufferAvailable() const override;
 
  private:
   // Called on the UI thread when the system clipboard changed under us.
   void OnClipboardChangedExternally();
 
-  SequenceNumberUpdateCb sequence_number_update_cb_;
+  // 87 -> 108: SetSequenceNumberUpdateCb became
+  // SetClipboardDataChangedCallback. The callback still takes a
+  // ClipboardBuffer and still means the same thing -- the content
+  // changed, update whatever depends on it -- so only the names moved.
+  ClipboardDataChangedCallback clipboard_data_changed_cb_;
 
   // True while the most recent change to the system clipboard is one we made.
   bool is_owner_ = false;

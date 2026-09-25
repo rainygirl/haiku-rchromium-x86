@@ -65,14 +65,21 @@ class OzonePlatformHaiku : public OzonePlatform {
   std::unique_ptr<PlatformScreen> CreateScreen() override {
     return std::make_unique<HaikuScreen>(window_manager_.get());
   }
+  // New in 108: split out of CreateScreen so that a screen can observe
+  // display::Screen without recursing into it from its own constructor.
+  // HaikuScreen has nothing to do here.
+  void InitScreen(PlatformScreen* screen) override {}
+  // 87 -> 108: internal::InputMethodDelegate was renamed
+  // ImeKeyEventDispatcher and lifted out of the internal namespace.
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate,
+      ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
-    return std::make_unique<InputMethodMinimal>(delegate);
+    return std::make_unique<InputMethodMinimal>(ime_key_event_dispatcher);
   }
 
  private:
-  void InitializeUI(const InitParams& params) override {
+  // 87 -> 108: InitializeUI reports whether it succeeded.
+  bool InitializeUI(const InitParams& params) override {
     fprintf(stderr, "[RCH] OzonePlatformHaiku::InitializeUI\n");
     application_ = std::make_unique<HaikuApplication>();
     fprintf(stderr, "[RCH] InitializeUI creating window manager\n");
@@ -89,6 +96,7 @@ class OzonePlatformHaiku : public OzonePlatform {
     cursor_factory_ = std::make_unique<HaikuCursorFactory>();
     gpu_platform_support_host_.reset(CreateStubGpuPlatformSupportHost());
     clipboard_ = std::make_unique<HaikuClipboard>();
+    return true;
   }
 
   void InitializeGPU(const InitParams& params) override {

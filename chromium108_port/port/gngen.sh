@@ -86,6 +86,21 @@ GN=tools/gn/out-arm64/gn
   # 87 port turned it off for the same reason; this machine has no GPU
   # acceleration worth the code either way.
   enable_swiftshader = false
+  # use_egl = false is not a configuration 108 supports. ui/gl/gl_display.cc
+  # is 1041 lines with no USE_EGL guard anywhere in it, ui/ozone/common
+  # compiles four EGL files unconditionally, and every one of those is an
+  # unguarded reference in code this port never runs -- 400 errors, and no
+  # end in sight, because no in-tree platform builds that way.
+  #
+  # So EGL is on, and ANGLE is cut down instead. Its "#error Unsupported
+  # OpenGL platform" lives inside ANGLE_ENABLE_OPENGL, and its Vulkan
+  # backend is what drags in the Vulkan loader with its own "must be
+  # modified for this OS". With both backends off, ANGLE builds with the
+  # null renderer, which is a GL stack that does nothing -- exactly what a
+  # port drawing through BView wants behind an API it never calls.
+  use_egl = true
+  angle_enable_gl = false
+  angle_enable_vulkan = false
   # Debug info for a 200 MB binary on a machine that will never run a
   # debugger on it, at the cost of every compile and every link. The 87
   # port set all three to 0 as well.

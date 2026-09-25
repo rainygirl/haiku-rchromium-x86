@@ -95,17 +95,20 @@ void HaikuClipboard::OfferClipboardData(ClipboardBuffer buffer,
     is_owner_ = true;
   }
 
-  if (!sequence_number_update_cb_.is_null())
-    sequence_number_update_cb_.Run(ClipboardBuffer::kCopyPaste);
+  if (!clipboard_data_changed_cb_.is_null())
+    clipboard_data_changed_cb_.Run(ClipboardBuffer::kCopyPaste);
 
   std::move(callback).Run();
 }
 
 void HaikuClipboard::RequestClipboardData(ClipboardBuffer buffer,
                                           const std::string& mime_type,
-                                          DataMap* data_map,
                                           RequestDataClosure callback) {
-  absl::optional<Data> result;
+  // 87 -> 108: the DataMap* out-parameter is gone, and RequestDataClosure
+  // takes a Data rather than an optional<Data>. Data is a scoped_refptr, so
+  // "no data" is a null one -- which is what the interface comment above it
+  // has always said the failure case looks like.
+  Data result;
 
   if (buffer == ClipboardBuffer::kCopyPaste && be_clipboard != nullptr &&
       be_clipboard->Lock()) {
@@ -116,8 +119,6 @@ void HaikuClipboard::RequestClipboardData(ClipboardBuffer buffer,
       if (ReadEntry(clip, mime_type, &data) ||
           (base_type != mime_type && ReadEntry(clip, base_type, &data))) {
         result = data;
-        if (data_map != nullptr)
-          (*data_map)[mime_type] = data;
       }
     }
     be_clipboard->Unlock();
@@ -152,8 +153,9 @@ bool HaikuClipboard::IsSelectionOwner(ClipboardBuffer buffer) {
   return buffer == ClipboardBuffer::kCopyPaste && is_owner_;
 }
 
-void HaikuClipboard::SetSequenceNumberUpdateCb(SequenceNumberUpdateCb cb) {
-  sequence_number_update_cb_ = std::move(cb);
+void HaikuClipboard::SetClipboardDataChangedCallback(
+    ClipboardDataChangedCallback callback) {
+  clipboard_data_changed_cb_ = std::move(callback);
 }
 
 bool HaikuClipboard::IsSelectionBufferAvailable() const {
@@ -163,8 +165,8 @@ bool HaikuClipboard::IsSelectionBufferAvailable() const {
 
 void HaikuClipboard::OnClipboardChangedExternally() {
   is_owner_ = false;
-  if (!sequence_number_update_cb_.is_null())
-    sequence_number_update_cb_.Run(ClipboardBuffer::kCopyPaste);
+  if (!clipboard_data_changed_cb_.is_null())
+    clipboard_data_changed_cb_.Run(ClipboardBuffer::kCopyPaste);
 }
 
 }  // namespace ui

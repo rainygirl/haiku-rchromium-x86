@@ -19,38 +19,25 @@ import sys
 
 root = sys.argv[1]
 edits = [
-    # ui/ozone/common compiles the EGL half of Ozone unconditionally, and
-    # 108 has no configuration where that is skipped -- every in-tree
-    # platform has use_egl. Turning use_egl on to satisfy it was tried and
-    # is a worse trade: it pulls in ANGLE, whose Display.cpp answers
-    # "#error Unsupported OpenGL platform", and the Vulkan loader, whose
-    # vk_loader_platform.h answers "must be modified for this OS". Porting
-    # either is a project; neither would ever run here.
-    #
-    # The Haiku backend asks for kGLImplementationDisabled and returns
-    # nullptr from GetGLOzone -- it draws through BView and has no GL at
-    # all -- and nothing outside the other Ozone platforms, none of which
-    # are built here, includes these files.
-    ("ui/ozone/common/BUILD.gn",
-     '    "stub_overlay_manager.cc",\n'
-     '    "stub_overlay_manager.h",\n'
-     "  ]",
-     '    "stub_overlay_manager.cc",\n'
-     '    "stub_overlay_manager.h",\n'
-     "  ]\n"
-     "\n"
-     "  if (is_haiku) {\n"
-     "    sources -= [\n"
-     '      "egl_util.cc",\n'
-     '      "egl_util.h",\n'
-     '      "gl_ozone_egl.cc",\n'
-     '      "gl_ozone_egl.h",\n'
-     '      "gl_surface_egl_readback.cc",\n'
-     '      "gl_surface_egl_readback.h",\n'
-     '      "native_pixmap_egl_binding.cc",\n'
-     '      "native_pixmap_egl_binding.h",\n'
-     "    ]\n"
-     "  }"),
+    # ...and the provider it falls back to has to be compiled. Same edit the
+    # 87 port made (patch 0032).
+    ("ui/base/BUILD.gn",
+     "  if (is_chromeos || (use_aura && is_linux)) {",
+     "  if (is_chromeos || (use_aura && (is_linux || is_haiku))) {"),
+    # net/dns includes <ifaddrs.h> in two files and is a separate target
+    # from component("net"), so it needs the BSD header config of its own.
+    ("net/dns/BUILD.gn",
+     'source_set("dns") {\n',
+     'source_set("dns") {\n'
+     '  if (is_haiku) {\n'
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     '  }\n'),
+    ("net/dns/BUILD.gn",
+     'source_set("host_resolver_manager") {\n',
+     'source_set("host_resolver_manager") {\n'
+     '  if (is_haiku) {\n'
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     '  }\n'),
     # net reaches for <ifaddrs.h> in three places -- the interface
     # enumeration and two DNS files. Same treatment as libevent and webrtc:
     # Haiku's BSD headers go on this target's include path and no further.

@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "haiku_window_manager.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ui {
@@ -60,14 +61,14 @@ gfx::Rect WorkAreaFor(const gfx::Rect& bounds) {
   const bool spans_horizontally = width >= bounds.width();
   if (spans_horizontally) {
     if (top <= bounds.y())
-      work_area.Inset(0, height, 0, 0);      // docked at the top
+      work_area.Inset(gfx::Insets().set_top(height));    // docked at the top
     else
-      work_area.Inset(0, 0, 0, height);      // docked at the bottom
+      work_area.Inset(gfx::Insets().set_bottom(height)); // docked at the bottom
   } else {
     if (left <= bounds.x())
-      work_area.Inset(width, 0, 0, 0);       // docked on the left
+      work_area.Inset(gfx::Insets().set_left(width));    // docked on the left
     else
-      work_area.Inset(0, 0, width, 0);       // docked on the right
+      work_area.Inset(gfx::Insets().set_right(width));   // docked on the right
   }
 
   // A misreported Deskbar must never leave the browser with nothing to draw on.

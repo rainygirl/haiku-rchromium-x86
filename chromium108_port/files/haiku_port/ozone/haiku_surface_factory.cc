@@ -19,7 +19,9 @@ class HaikuCanvas : public SurfaceOzoneCanvas {
       : manager_(manager), widget_(widget) {}
   ~HaikuCanvas() override = default;
 
-  void ResizeCanvas(const gfx::Size& viewport_size) override {
+  // 87 -> 108: ResizeCanvas gained a scale factor. app_server hands out
+  // device pixels and this port reports a scale of 1, so it is ignored.
+  void ResizeCanvas(const gfx::Size& viewport_size, float scale) override {
     fprintf(stderr, "[RCH] ResizeCanvas %dx%d\n",
             viewport_size.width(), viewport_size.height());
     if (viewport_size.IsEmpty()) {
@@ -77,12 +79,13 @@ HaikuSurfaceFactory::HaikuSurfaceFactory(HaikuWindowManager* window_manager)
     : window_manager_(window_manager) {}
 HaikuSurfaceFactory::~HaikuSurfaceFactory() = default;
 
-std::vector<gl::GLImplementation>
+std::vector<gl::GLImplementationParts>
 HaikuSurfaceFactory::GetAllowedGLImplementations() {
-  return {gl::kGLImplementationDisabled};
+  return {gl::GLImplementationParts(gl::kGLImplementationDisabled)};
 }
 
-GLOzone* HaikuSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
+GLOzone* HaikuSurfaceFactory::GetGLOzone(
+    const gl::GLImplementationParts& implementation) {
   return nullptr;
 }
 

@@ -137,13 +137,19 @@ class HaikuWindow : public StubWindow {
   void Hide() override;
   void Close() override;
   bool IsVisible() const override;
-  void SetBounds(const gfx::Rect& bounds) override;
-  gfx::Rect GetBounds() override;
-  void SetTitle(const base::string16& title) override;
+  // 87 -> 108: SetBounds/GetBounds split into a pixel pair and a DIP pair.
+  // This window has no scale factor of its own -- app_server hands out
+  // device pixels and Chromium is told the scale is 1 -- so the DIP pair
+  // forwards to the pixel pair rather than converting.
+  void SetBoundsInPixels(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInPixels() const override;
+  void SetBoundsInDIP(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInDIP() const override;
+  void SetTitle(const std::u16string& title) override;
   void Activate() override;
   void Minimize() override;
   void Restore() override;
-  void SetCursor(PlatformCursor cursor) override;
+  void SetCursor(scoped_refptr<PlatformCursor> cursor) override;
   PlatformWindowState GetPlatformWindowState() const override;
 
   // Both run on the UI thread, posted from the looper thread. Reached through

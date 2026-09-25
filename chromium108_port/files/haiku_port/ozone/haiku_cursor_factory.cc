@@ -6,6 +6,8 @@
 #include <cstring>
 #include <utility>
 
+#include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/gfx/geometry/point.h"
@@ -128,28 +130,54 @@ std::unique_ptr<BBitmap> ToBBitmap(const SkBitmap& bitmap) {
 
 }  // namespace
 
-HaikuCursorFactory::HaikuCursorFactory() = default;
+// The ref-counted wrapper 108 asks for. A BCursor is a handle into
+// app_server; destroying it releases that handle, which is exactly what
+// PlatformCursor's refcount is there to time.
+class HaikuPlatformCursor : public PlatformCursor {
+ public:
+  explicit HaikuPlatformCursor(std::unique_ptr<BCursor> cursor)
+      : cursor_(std::move(cursor)) {}
 
-HaikuCursorFactory::~HaikuCursorFactory() {
-  for (auto& entry : image_cursor_refs_)
-    delete entry.first;
-  image_cursor_refs_.clear();
+  HaikuPlatformCursor(const HaikuPlatformCursor&) = delete;
+  HaikuPlatformCursor& operator=(const HaikuPlatformCursor&) = delete;
+
+  const BCursor* cursor() const { return cursor_.get(); }
+
+ private:
+  friend class base::RefCounted<PlatformCursor>;
+  ~HaikuPlatformCursor() override = default;
+
+  std::unique_ptr<BCursor> cursor_;
+};
+
+const BCursor* BCursorFromPlatformCursor(PlatformCursor* cursor) {
+  if (cursor == nullptr)
+    return nullptr;
+  return static_cast<HaikuPlatformCursor*>(cursor)->cursor();
 }
 
-absl::optional<PlatformCursor> HaikuCursorFactory::GetDefaultCursor(
+HaikuCursorFactory::HaikuCursorFactory() = default;
+
+// Image cursors used to be deleted here by hand. They are ref-counted now
+// and go when their last holder does.
+HaikuCursorFactory::~HaikuCursorFactory() = default;
+
+scoped_refptr<PlatformCursor> HaikuCursorFactory::GetDefaultCursor(
     mojom::CursorType type) {
   const BCursorID id = CursorIdFor(type);
   auto found = default_cursors_.find(static_cast<int>(id));
   if (found == default_cursors_.end()) {
-    auto cursor = std::make_unique<BCursor>(id);
     found = default_cursors_
-                .emplace(static_cast<int>(id), std::move(cursor))
+                .emplace(static_cast<int>(id),
+                         base::MakeRefCounted<HaikuPlatformCursor>(
+                             std::make_unique<BCursor>(id)))
                 .first;
   }
-  return static_cast<PlatformCursor>(found->second.get());
+  return found->second;
 }
 
-PlatformCursor HaikuCursorFactory::CreateImageCursor(
+scoped_refptr<PlatformCursor> HaikuCursorFactory::CreateImageCursor(
+    mojom::CursorType type,
     const SkBitmap& bitmap,
     const gfx::Point& hotspot) {
   std::unique_ptr<BBitmap> image = ToBBitmap(bitmap);
@@ -157,43 +185,25 @@ PlatformCursor HaikuCursorFactory::CreateImageCursor(
     return nullptr;
 
   // BCursor copies the bitmap, so the BBitmap does not need to outlive this.
-  auto* cursor = new BCursor(image.get(), BPoint(hotspot.x(), hotspot.y()));
-  if (cursor->InitCheck() != B_OK) {
-    delete cursor;
+  auto cursor =
+      std::make_unique<BCursor>(image.get(), BPoint(hotspot.x(), hotspot.y()));
+  if (cursor->InitCheck() != B_OK)
     return nullptr;
-  }
 
-  image_cursor_refs_[cursor] = 1;
-  return static_cast<PlatformCursor>(cursor);
+  return base::MakeRefCounted<HaikuPlatformCursor>(std::move(cursor));
 }
 
-PlatformCursor HaikuCursorFactory::CreateAnimatedCursor(
+scoped_refptr<PlatformCursor> HaikuCursorFactory::CreateAnimatedCursor(
+    mojom::CursorType type,
     const std::vector<SkBitmap>& bitmaps,
     const gfx::Point& hotspot,
-    int frame_delay_ms) {
+    base::TimeDelta frame_delay) {
   // app_server has no animated cursor API. Showing the first frame as a static
   // cursor is better than falling back to the default, which would lose the
   // shape entirely.
   if (bitmaps.empty())
     return nullptr;
-  return CreateImageCursor(bitmaps.front(), hotspot);
-}
-
-void HaikuCursorFactory::RefImageCursor(PlatformCursor cursor) {
-  auto found = image_cursor_refs_.find(static_cast<BCursor*>(cursor));
-  if (found != image_cursor_refs_.end())
-    ++found->second;
-}
-
-void HaikuCursorFactory::UnrefImageCursor(PlatformCursor cursor) {
-  auto* handle = static_cast<BCursor*>(cursor);
-  auto found = image_cursor_refs_.find(handle);
-  if (found == image_cursor_refs_.end())
-    return;
-  if (--found->second > 0)
-    return;
-  image_cursor_refs_.erase(found);
-  delete handle;
+  return CreateImageCursor(type, bitmaps.front(), hotspot);
 }
 
 }  // namespace ui

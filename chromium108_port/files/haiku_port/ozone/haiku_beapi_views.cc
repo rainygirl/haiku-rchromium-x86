@@ -343,14 +343,14 @@ void HaikuContentView::DispatchKey(EventType type,
   // that works.
   DomCode dom_code = DomCode::NONE;
   DomKey dom_key = DomKey::NONE;
-  base::char16 character = 0;
+  char16_t character = 0;
 
   // The character is skipped while a shortcut modifier is held, so that Alt+C
   // does not also type a "c", and for the control range, so that Return and
   // Backspace stay commands.
   if (bytes != nullptr && num_bytes > 0 &&
       (flags & (EF_CONTROL_DOWN | EF_ALT_DOWN | EF_COMMAND_DOWN)) == 0) {
-    const base::string16 text =
+    const std::u16string text =
         base::UTF8ToUTF16(std::string(bytes, static_cast<size_t>(num_bytes)));
     if (!text.empty() && text[0] >= 0x20 && text[0] != 0x7f)
       character = text[0];

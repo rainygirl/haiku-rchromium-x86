@@ -27,6 +27,199 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # The include block picks its header by OS too, and Haiku was not in it,
+    # so the arm below found neither OSExchangeDataProviderFactoryOzone nor
+    # OSExchangeDataProviderNonBacked declared.
+    ("ui/base/dragdrop/os_exchange_data_provider_factory.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)\n"
+     '#include "ui/base/dragdrop/os_exchange_data_provider_factory_ozone.h"',
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "ui/base/dragdrop/os_exchange_data_provider_factory_ozone.h"'),
+
+    # GpuMemoryBufferHandle carries a NativePixmapHandle on the systems that
+    # have one. Haiku does not, but the mojo traits that serialise the
+    # handle are compiled for every Ozone platform and read the field
+    # unconditionally. The field is present and empty here, which costs a
+    # few bytes and keeps the traits honest.
+    ("ui/gfx/gpu_memory_buffer.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)\n"
+     "  NativePixmapHandle native_pixmap_handle;",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "  NativePixmapHandle native_pixmap_handle;"),
+
+    # The other two ip_mreqn sites, in the multicast join and leave paths.
+    # Same substitution as the one in SetMulticastOptions: Haiku has
+    # ip_mreq, which names the interface by address rather than by index.
+    ("net/socket/udp_socket_posix.cc",
+     "      ip_mreqn mreq = {};\n"
+     "      mreq.imr_ifindex = multicast_interface_;\n"
+     "      mreq.imr_address.s_addr = htonl(INADDR_ANY);",
+     "#if defined(__HAIKU__)\n"
+     "      ip_mreq mreq = {};\n"
+     "      mreq.imr_interface.s_addr = htonl(INADDR_ANY);\n"
+     "#else\n"
+     "      ip_mreqn mreq = {};\n"
+     "      mreq.imr_ifindex = multicast_interface_;\n"
+     "      mreq.imr_address.s_addr = htonl(INADDR_ANY);\n"
+     "#endif"),
+    ("net/socket/udp_socket_posix.cc",
+     "      ip_mreqn mreq = {};\n"
+     "      mreq.imr_ifindex = multicast_interface_;\n"
+     "      mreq.imr_address.s_addr = INADDR_ANY;",
+     "#if defined(__HAIKU__)\n"
+     "      ip_mreq mreq = {};\n"
+     "      mreq.imr_interface.s_addr = INADDR_ANY;\n"
+     "#else\n"
+     "      ip_mreqn mreq = {};\n"
+     "      mreq.imr_ifindex = multicast_interface_;\n"
+     "      mreq.imr_address.s_addr = INADDR_ANY;\n"
+     "#endif"),
+    # SurfaceFactoryOzone declares CreateNativePixmap and its async twin with
+    # a VkDevice parameter, but only includes the Vulkan headers when
+    # ENABLE_VULKAN is set -- and enable_vulkan is is_linux || is_chromeos ||
+    # is_android || is_fuchsia || is_win || is_apple, none of which is Haiku.
+    # Every in-tree Ozone platform is on a system where it is set, so nobody
+    # has hit this. VK_DEFINE_HANDLE is exactly this typedef, so declaring it
+    # here when Vulkan is off costs nothing and changes no ABI: the parameter
+    # is an opaque pointer that this port only ever receives as null.
+    ("ui/ozone/public/surface_factory_ozone.h",
+     "#if BUILDFLAG(ENABLE_VULKAN)\n"
+     '#include "gpu/vulkan/vulkan_implementation.h"\n'
+     "#endif",
+     "#if BUILDFLAG(ENABLE_VULKAN)\n"
+     '#include "gpu/vulkan/vulkan_implementation.h"\n'
+     "#else\n"
+     "// The signatures below name VkDevice whether or not Vulkan is built.\n"
+     "// This is what VK_DEFINE_HANDLE expands to.\n"
+     "struct VkDevice_T;\n"
+     "typedef struct VkDevice_T* VkDevice;\n"
+     "#endif"),
+
+    # Haiku reports the peer pid through SO_PEERCRED like Linux, so the
+    # field has to exist in the struct as well as be filled in.
+    ("net/socket/unix_domain_server_socket_posix.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA)\n"
+     "    // Linux and Fuchsia provide more information",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "    // Linux and Fuchsia provide more information"),
+
+    # EUSERS is "too many users", a limit Haiku's kernel does not have and
+    # whose errno it therefore does not define.
+    ("net/base/net_errors_posix.cc",
+     "    case EUSERS:  // Too many users.\n"
+     "      return ERR_INSUFFICIENT_RESOURCES;",
+     "#if !defined(__HAIKU__)\n"
+     "    case EUSERS:  // Too many users.\n"
+     "      return ERR_INSUFFICIENT_RESOURCES;\n"
+     "#endif"),
+
+    # Drag and drop: the factory's OS chain ends in #error. Haiku takes the
+    # Linux arm, which asks Ozone for a provider and falls back to the
+    # non-backed one. The 87 port made the same choice (patch 0032), and in
+    # 108 it is one line rather than four because the X11 and feature-flag
+    # branches around it are gone.
+    ("ui/base/dragdrop/os_exchange_data_provider_factory.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  // The instance can be nullptr in tests",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  // The instance can be nullptr in tests"),
+    # Haiku has no system certificate verifier to call, which is the same
+    # position Linux, ChromeOS and Fuchsia are in -- they use Chromium's
+    # built-in verifier, and this function is not defined for them at all.
+    ("net/cert/cert_verify_proc.cc",
+     "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS))",
+     "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
+     "      BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU))"),
+
+    # MSG_CONFIRM is a Linux flag telling the kernel the path is still
+    # valid, so it need not re-ARP. Apple is already excluded; Haiku has no
+    # such flag and the send works without it.
+    ("net/socket/udp_socket_posix.cc",
+     "void UDPSocketPosix::SetMsgConfirm(bool confirm) {\n"
+     "#if !BUILDFLAG(IS_APPLE)",
+     "void UDPSocketPosix::SetMsgConfirm(bool confirm) {\n"
+     "#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_HAIKU)"),
+    ("net/socket/udp_socket_posix.cc",
+     "#endif  // !BUILDFLAG(IS_APPLE)\n"
+     "}\n"
+     "\n"
+     "int UDPSocketPosix::AllowAddressReuse() {",
+     "#endif  // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_HAIKU)\n"
+     "}\n"
+     "\n"
+     "int UDPSocketPosix::AllowAddressReuse() {"),
+
+    # IP_DEFAULT_MULTICAST_TTL is 1 by RFC 1112 and by every BSD header that
+    # defines it; Haiku's just does not. It is only used here as the value
+    # to compare against before bothering to call setsockopt.
+    ("net/socket/udp_socket_posix.cc",
+     "  if (multicast_time_to_live_ != IP_DEFAULT_MULTICAST_TTL) {",
+     "#if defined(__HAIKU__) && !defined(IP_DEFAULT_MULTICAST_TTL)\n"
+     "// 1 by RFC 1112; not in Haiku's netinet/in.h.\n"
+     "#define IP_DEFAULT_MULTICAST_TTL 1\n"
+     "#endif\n"
+     "  if (multicast_time_to_live_ != IP_DEFAULT_MULTICAST_TTL) {"),
+
+    # ip_mreqn is Linux's extension to ip_mreq, adding imr_ifindex so a
+    # multicast interface can be named by index rather than by address.
+    # Haiku has the plain ip_mreq, so the interface has to be named by its
+    # address -- and INADDR_ANY, the only one available here, means "let the
+    # routing table choose". Multicast on a specific interface is therefore
+    # not honoured on Haiku, which is a limitation rather than a failure:
+    # the socket still works on the default route.
+    ("net/socket/udp_socket_posix.cc",
+     "        ip_mreqn mreq = {};\n"
+     "        mreq.imr_ifindex = multicast_interface_;\n"
+     "        mreq.imr_address.s_addr = htonl(INADDR_ANY);",
+     "#if defined(__HAIKU__)\n"
+     "        ip_mreq mreq = {};\n"
+     "        mreq.imr_interface.s_addr = htonl(INADDR_ANY);\n"
+     "#else\n"
+     "        ip_mreqn mreq = {};\n"
+     "        mreq.imr_ifindex = multicast_interface_;\n"
+     "        mreq.imr_address.s_addr = htonl(INADDR_ANY);\n"
+     "#endif"),
+
+    # IPV6_TCLASS again, this time for UDP. Without it there is no IPv6 DSCP
+    # to set; the IPv4 setsockopt above already ran.
+    ("net/socket/udp_socket_posix.cc",
+     "  if (addr_family_ == AF_INET6) {\n"
+     "    // In the IPv6 case, the previous socksetopt may fail because of a lack of\n"
+     "    // dual-stack support. Therefore ignore the previous return value.\n"
+     "    rv = setsockopt(socket_, IPPROTO_IPV6, IPV6_TCLASS,\n"
+     "                    &dscp_and_ecn, sizeof(dscp_and_ecn));\n"
+     "  }",
+     "#if !defined(__HAIKU__)\n"
+     "  if (addr_family_ == AF_INET6) {\n"
+     "    // In the IPv6 case, the previous socksetopt may fail because of a lack of\n"
+     "    // dual-stack support. Therefore ignore the previous return value.\n"
+     "    rv = setsockopt(socket_, IPPROTO_IPV6, IPV6_TCLASS,\n"
+     "                    &dscp_and_ecn, sizeof(dscp_and_ecn));\n"
+     "  }\n"
+     "#endif"),
+
+    # Haiku has SO_PEERCRED and struct ucred, and no getpeereid. It belongs
+    # in the first arm, not the BSD fallback.
+    ("net/socket/unix_domain_server_socket_posix.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA)\n"
+     "  struct ucred user_cred;",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "  struct ucred user_cred;"),
+
+    # IFF_RUNNING once more, same answer as in webrtc: Haiku reports IFF_UP.
+    ("net/base/network_interfaces_getifaddrs.cc",
+     "    if (!(IFF_RUNNING & interface->ifa_flags))",
+     "#if defined(__HAIKU__)\n"
+     "    if (!(IFF_UP & interface->ifa_flags))\n"
+     "#else\n"
+     "    if (!(IFF_RUNNING & interface->ifa_flags))\n"
+     "#endif"),
     # EGLDisplayPlatform is the one EGL class in gl_display.h left outside
     # the USE_EGL guard -- GLDisplayEGL right below it is inside one. It
     # uses EGLNativeDisplayType and EGL_DEFAULT_DISPLAY, which come from
