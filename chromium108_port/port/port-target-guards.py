@@ -246,9 +246,18 @@ for rel, old, new in edits:
     #
     # Which of the two an edit is can be read off the edit itself.
     if new in old:
+        # A removal: the replacement is a fragment of what it replaces, so it
+        # is a substring of the original too and "new in s" is true before
+        # anything is done. Ask whether the thing being removed is still there.
         already = old not in s
     else:
-        already = new in s
+        # An addition or a substitution. "new in s" is not enough either:
+        # liftoff-assembler-ia32.h already contained three "uintptr_t
+        # offset_imm" of its own, so the check passed and the fourteen
+        # "uint32_t offset_imm" were never touched. Take the replacement out
+        # of the text first, then ask whether any unpatched occurrence
+        # remains.
+        already = old not in s.replace(new, "")
     if already:
         continue
     if old not in s:

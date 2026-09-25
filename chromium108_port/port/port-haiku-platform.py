@@ -27,6 +27,244 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # perfetto's PosixSharedMemory is declared only for the systems it was
+    # written for, and system_tracing_backend.cc uses it on every non-Windows
+    # build. Haiku goes in the declaration's list: the implementation asks
+    # for a memfd first and falls back to an ordinary file when it cannot
+    # have one, which is the path Haiku takes.
+    ("third_party/perfetto/src/tracing/ipc/posix_shared_memory.h",
+     "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)",
+     "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || defined(__HAIKU__)"),
+
+    # The clock snapshot lists CLOCK_BOOTTIME, CLOCK_REALTIME_COARSE,
+    # CLOCK_MONOTONIC_COARSE and CLOCK_MONOTONIC_RAW. Haiku has none of the
+    # four -- it has CLOCK_MONOTONIC and CLOCK_REALTIME and that is the set.
+    # Rather than snapshot a subset under a different name, Haiku joins the
+    # systems that take no snapshot at all.
+    ("third_party/perfetto/src/tracing/core/tracing_service_impl.cc",
+     "#if !PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) && \\\n"
+     "    !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN) &&   \\\n"
+     "    !PERFETTO_BUILDFLAG(PERFETTO_OS_NACL)",
+     "#if !PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) && \\\n"
+     "    !PERFETTO_BUILDFLAG(PERFETTO_OS_WIN) &&   \\\n"
+     "    !PERFETTO_BUILDFLAG(PERFETTO_OS_NACL) && !defined(__HAIKU__)"),
+
+    # mincore() again, in a test helper this time. NaCl is already here for
+    # the same reason.
+    ("third_party/perfetto/src/base/test/vm_test_utils.cc",
+     "#elif PERFETTO_BUILDFLAG(PERFETTO_OS_NACL)\n"
+     "  // mincore isn't available on NaCL.\n"
+     "  ignore_result(page_size);\n"
+     "  return true;",
+     "#elif PERFETTO_BUILDFLAG(PERFETTO_OS_NACL) || defined(__HAIKU__)\n"
+     "  // mincore isn't available on NaCL, nor on Haiku.\n"
+     "  ignore_result(page_size);\n"
+     "  return true;"),
+    # Haiku has no native pixmap handle -- no dmabuf fd, no VMO -- so there
+    # is nothing to duplicate. The geometry is still worth copying: the
+    # clone stays a valid description of the plane, it just carries no
+    # handle, which is what a system with no GPU buffer sharing can say.
+    ("ui/gfx/native_pixmap_handle.cc",
+     "#else\n#error Unsupported OS\n#endif",
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "    NativePixmapPlane cloned_plane;\n"
+     "    cloned_plane.stride = plane.stride;\n"
+     "    cloned_plane.offset = plane.offset;\n"
+     "    cloned_plane.size = plane.size;\n"
+     "    clone.planes.push_back(std::move(cloned_plane));\n"
+     "#else\n#error Unsupported OS\n#endif"),
+    # V8's ia32 Liftoff takes uint32_t offset_imm where the header declares
+    # uintptr_t. On Linux x86-32 those are the same type and nobody noticed;
+    # on Haiku uintptr_t is unsigned long and they are not, so eleven
+    # definitions stopped matching their declarations. The header is right --
+    # the parameter is a pointer offset -- so the ia32 file follows it.
+    ("v8/src/wasm/baseline/ia32/liftoff-assembler-ia32.h",
+     "uint32_t offset_imm",
+     "uintptr_t offset_imm",
+     "all"),
+
+    # <ucontext.h> does not exist here. The file already knows one system
+    # where it does not -- OpenBSD, whose comment says ucontext_t lives in
+    # <signal.h> instead -- and Haiku is the same shape of exception.
+    ("v8/src/libsampler/sampler.cc",
+     "#elif !V8_OS_OPENBSD\n#include <ucontext.h>",
+     "#elif !V8_OS_OPENBSD && !V8_OS_HAIKU\n#include <ucontext.h>"),
+
+    # futimes is absent, futimens is present. The branch that prefers
+    # futimens is guarded on __USE_XOPEN2K8, which is a glibc feature macro
+    # and not something Haiku defines even though it has the function.
+    ("base/files/file_posix.cc",
+     "#ifdef __USE_XOPEN2K8\n",
+     "#if defined(__USE_XOPEN2K8) || defined(__HAIKU__)\n"),
+
+    # RLIMIT_NICE is a Linux resource limit; Haiku has NZERO but no way to
+    # ask how far niceness may be lowered. Answering "no" is the honest
+    # answer and the safe one -- the caller falls back to not lowering.
+    ("base/posix/can_lower_nice_to.cc",
+     "  struct rlimit rlim;\n"
+     "  if (getrlimit(RLIMIT_NICE, &rlim) != 0)\n"
+     "    return false;",
+     "#if defined(__HAIKU__)\n"
+     "  // Haiku has no RLIMIT_NICE, so there is nothing to read the allowance\n"
+     "  // from. Say no rather than guess.\n"
+     "  return false;\n"
+     "#else\n"
+     "  struct rlimit rlim;\n"
+     "  if (getrlimit(RLIMIT_NICE, &rlim) != 0)\n"
+     "    return false;"),
+    ("base/posix/can_lower_nice_to.cc",
+     "  return nice_value >= lowest_nice_allowed;\n}",
+     "  return nice_value >= lowest_nice_allowed;\n#endif\n}"),
+
+    # SO_PASSCRED and SCM_CREDENTIALS are Linux's credential passing.
+    # macOS is already excluded from both, with an #else that returns true
+    # and a conditional that is simply skipped; Haiku joins it.
+    ("base/posix/unix_domain_socket.cc",
+     "#if !BUILDFLAG(IS_APPLE)",
+     "#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_HAIKU)",
+     "all"),
+    ("base/posix/unix_domain_socket.cc",
+     "#endif  // !BUILDFLAG(IS_APPLE)",
+     "#endif  // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_HAIKU)",
+     "all"),
+
+    # Haiku's per-process file descriptors are at /dev/fd, as on the BSDs
+    # and Solaris. There is no /proc.
+    ("base/process/launch_posix.cc",
+     '#elif BUILDFLAG(IS_SOLARIS)\nstatic const char kFDDir[] = "/dev/fd";',
+     '#elif BUILDFLAG(IS_HAIKU)\nstatic const char kFDDir[] = "/dev/fd";\n'
+     '#elif BUILDFLAG(IS_SOLARIS)\nstatic const char kFDDir[] = "/dev/fd";'),
+
+    # Haiku's default RLIMIT_NOFILE is 256, and this constant is only the
+    # guess used when getrlimit itself fails.
+    ("base/process/process_metrics_posix.cc",
+     "#elif BUILDFLAG(IS_SOLARIS)\nstatic const rlim_t kSystemDefaultMaxFds = 8192;",
+     "#elif BUILDFLAG(IS_HAIKU)\nstatic const rlim_t kSystemDefaultMaxFds = 256;\n"
+     "#elif BUILDFLAG(IS_SOLARIS)\nstatic const rlim_t kSystemDefaultMaxFds = 8192;"),
+
+    # timegm is in libbsd, which is linked; only the declaration is missing,
+    # because headers/bsd is deliberately off the general include path.
+    ("base/time/time_exploded_posix.cc",
+     "#else  // MacOS (and iOS 64-bit), Linux/ChromeOS, or any other POSIX-compliant.\n"
+     "\n"
+     "typedef time_t SysTime;\n",
+     "#else  // MacOS (and iOS 64-bit), Linux/ChromeOS, or any other POSIX-compliant.\n"
+     "\n"
+     "#if defined(__HAIKU__)\n"
+     "extern \"C\" time_t timegm(struct tm*);\n"
+     "#endif\n"
+     "\n"
+     "typedef time_t SysTime;\n"),
+
+    # mallinfo() is glibc's. Haiku's allocator does not offer an equivalent,
+    # so there is nothing for this dump provider to report.
+    ("base/trace_event/malloc_dump_provider.cc",
+     "#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)\n"
+     "#if __GLIBC_PREREQ(2, 33)",
+     "#if defined(__HAIKU__)\n"
+     "  // Haiku's allocator has no mallinfo() or equivalent; nothing to add.\n"
+     "  return;\n"
+     "#else\n"
+     "#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)\n"
+     "#if __GLIBC_PREREQ(2, 33)"),
+
+    # PF_X is the ELF program-header executable flag, value 1 by the ELF
+    # specification. Haiku's elf.h does not spell it out.
+    ("base/profiler/module_cache_posix.cc",
+     "size_t GetLastExecutableOffset(const void* module_addr) {",
+     "#if defined(__HAIKU__) && !defined(PF_X)\n"
+     "// Not in Haiku's elf.h. 1 by the ELF specification, everywhere.\n"
+     "#define PF_X 1\n"
+     "#endif\n"
+     "\n"
+     "size_t GetLastExecutableOffset(const void* module_addr) {"),
+
+    # mincore() asks which pages of a mapping are resident. Haiku has no
+    # equivalent. For MADV_FREE discardable memory, "resident" is the
+    # conservative answer: it means the pages have not been reclaimed, so
+    # the caller keeps treating the block as live rather than as discarded.
+    ("base/memory/madv_free_discardable_memory_posix.cc",
+     "  int retval =\n"
+     "      mincore(data_, allocated_pages_ * base::GetPageSize(), vec.data());",
+     "#if defined(__HAIKU__)\n"
+     "  // No mincore() here. Report resident, which is the answer that keeps\n"
+     "  // the block treated as live.\n"
+     "  return true;\n"
+     "#else\n"
+     "  int retval =\n"
+     "      mincore(data_, allocated_pages_ * base::GetPageSize(), vec.data());"),
+    ("base/memory/madv_free_discardable_memory_posix.cc",
+     "  for (size_t i = 0; i < allocated_pages_; ++i) {\n"
+     "    if (!(vec[i] & 1))\n"
+     "      return false;\n"
+     "  }\n"
+     "  return true;\n"
+     "}",
+     "  for (size_t i = 0; i < allocated_pages_; ++i) {\n"
+     "    if (!(vec[i] & 1))\n"
+     "      return false;\n"
+     "  }\n"
+     "  return true;\n"
+     "#endif\n"
+     "}"),
+
+    # Same missing call, different caller: counting resident bytes for a
+    # memory dump. Here there is already a failure path, so use it -- the
+    # number is reported as unavailable rather than invented.
+    ("base/trace_event/process_memory_dump.cc",
+     "#elif BUILDFLAG(IS_POSIX)\n"
+     "    int error_counter = 0;\n"
+     "    int result = 0;",
+     "#elif defined(__HAIKU__)\n"
+     "    // Haiku has no mincore(); the count is simply not available.\n"
+     "    failure = true;\n"
+     "#elif BUILDFLAG(IS_POSIX)\n"
+     "    int error_counter = 0;\n"
+     "    int result = 0;"),
+
+    # skia's platform canvas declares CreatePlatformCanvasWithPixels by OS
+    # name and Haiku was not in the list, so the two inline functions below
+    # called something that had never been declared.
+    ("skia/ext/platform_canvas.h",
+     "#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \\\n"
+     "    defined(__sun) || defined(ANDROID) || defined(__APPLE__) ||             \\\n"
+     "    defined(__Fuchsia__)",
+     "#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \\\n"
+     "    defined(__sun) || defined(ANDROID) || defined(__APPLE__) ||             \\\n"
+     "    defined(__Fuchsia__) || defined(__HAIKU__)"),
+
+    # IFF_RUNNING is not in Haiku's net/if.h. IFF_UP is the flag it does
+    # have, and for the purpose here -- skipping interfaces that are down --
+    # it is the right question.
+    ("third_party/webrtc/rtc_base/network.cc",
+     "    if (!(cursor->ifa_flags & IFF_RUNNING)) {",
+     "#if defined(__HAIKU__)\n"
+     "    // No IFF_RUNNING here; IFF_UP is what Haiku reports.\n"
+     "    if (!(cursor->ifa_flags & IFF_UP)) {\n"
+     "#else\n"
+     "    if (!(cursor->ifa_flags & IFF_RUNNING)) {\n"
+     "#endif"),
+
+    # SIOCGSTAMP is a Linux ioctl for the timestamp of the last packet. The
+    # file already has an arm for systems without it -- macOS and Native
+    # Client -- which returns -1.
+    ("third_party/webrtc/rtc_base/physical_socket_server.cc",
+     "#if defined(WEBRTC_POSIX) && !defined(WEBRTC_MAC) && !defined(__native_client__)",
+     "#if defined(WEBRTC_POSIX) && !defined(WEBRTC_MAC) && \\\n"
+     "    !defined(__native_client__) && !defined(__HAIKU__)"),
+
+    # IPV6_TCLASS likewise. Without it there is no dual-stack DSCP to mirror.
+    ("third_party/webrtc/rtc_base/physical_socket_server.cc",
+     "#if defined(WEBRTC_POSIX)\n"
+     "  if (sopt == IPV6_TCLASS) {",
+     "#if defined(WEBRTC_POSIX) && !defined(__HAIKU__)\n"
+     "  if (sopt == IPV6_TCLASS) {"),
     # MessagePumpForUI is chosen by OS and the chain ends in an #error.
     # Haiku takes MessagePumpLibevent, the same one Linux without GLib and
     # the BSDs take. libevent already builds here.
@@ -365,9 +603,18 @@ for edit in edits:
         print("  missing: %s" % rel)
         continue
     if new in old:
+        # A removal: the replacement is a fragment of what it replaces, so it
+        # is a substring of the original too and "new in s" is true before
+        # anything is done. Ask whether the thing being removed is still there.
         already = old not in s
     else:
-        already = new in s
+        # An addition or a substitution. "new in s" is not enough either:
+        # liftoff-assembler-ia32.h already contained three "uintptr_t
+        # offset_imm" of its own, so the check passed and the fourteen
+        # "uint32_t offset_imm" were never touched. Take the replacement out
+        # of the text first, then ask whether any unpatched occurrence
+        # remains.
+        already = old not in s.replace(new, "")
     if already:
         continue
     if old not in s:
