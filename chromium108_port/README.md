@@ -108,3 +108,42 @@ and ask for a clang that was never downloaded.
 `PKG_CONFIG_LIBDIR` and `PKG_CONFIG_SYSROOT_DIR` all point into
 `cross-tools-x86/i586-pc-haiku`; the VAIO's 136 `.pc` files came over with it.
 Without this, nss stops the configure with "Could not run pkg-config".
+
+## Compiling (2026-09-25)
+
+30,491 edges, 257 failures left. The count fell in large steps, and every one
+of the big ones was a single root:
+
+| errors | cause |
+| --- | --- |
+| 3,377 | the cross-compiler is an arm64 binary; the container was amd64 |
+| 2,882 | `host_toolchain` named x64 on an arm64 host: `-m64 -msse3` to an aarch64 gcc |
+| 8,287 | V8 and perfetto keep their own OS chains, and both ended at Haiku |
+| 596 | `v8_snapshot_toolchain` named Linux x86; no 32-bit glibc in the container |
+| 578 | `V8_HAS_MALLOC_USABLE_SIZE`: Haiku's libroot has no such function |
+| 539 | `export-template.h`'s own static_asserts, which gcc 13 fails |
+
+### "not found" was never about PATH
+
+`/bin/sh: /build/xwrappers/g++-x86: not found` was read as a PATH problem
+twice, and the toolchain was changed to use absolute paths because of it. The
+path was right both times. Linux says "not found" when it cannot run a
+binary's *interpreter or architecture*, and the cross-compiler had been built
+in an arm64 container while the build ran under `--platform linux/amd64` for
+the sake of the bundled x86-64 `gn`. Building gn for arm64 removed the
+conflict -- and native is 7.5x faster than the emulation anyway.
+
+### Adding an OS to a POSIX set opens holes
+
+`V8_OS_HAIKU` put Haiku inside every `V8_OS_POSIX` branch, which is right, and
+then wrong wherever V8 means "posix but not X". `malloc_usable_size` is the
+first: Haiku belongs beside AIX on the exclusion side. Expect more of these
+rather than fewer as Haiku reaches further into the tree.
+
+### Not every error is about Haiku
+
+`export-template.h` fails on gcc 13 for reasons that have nothing to do with
+the target -- 539 of them, from four static_asserts that test the header's own
+macro machinery. The macros work; the self-test does not expand as they
+expect. 108 is built with clang upstream, so this is the first of a class:
+things that break because the compiler is gcc, not because the OS is Haiku.

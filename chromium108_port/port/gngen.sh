@@ -11,10 +11,13 @@ export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 export PKG_CONFIG_LIBDIR="$SYSROOT/lib/pkgconfig"
 
 cd /build/chromium108
-GN=buildtools/linux64/gn
+# The bundled gn is an x86-64 ELF; this one was built here for arm64 so
+# that the whole build -- gn, the cross-compiler, ninja -- runs native.
+GN=tools/gn/out-arm64/gn
 [ -x "$GN" ] || { echo "no gn at $GN"; exit 1; }
 "$GN" gen out/haiku-x86 --args='
   target_os = "haiku"
+  haiku_cross_bin = "/build/xwrappers"
   target_cpu = "x86"
   is_debug = false
   is_component_build = false
@@ -53,10 +56,18 @@ GN=buildtools/linux64/gn
   # ...and name the gcc host toolchain explicitly. Leaving it to default picks
   # //build/toolchain/linux:clang_x64, which asks update.py for the bundled
   # clang before anything else happens.
-  host_toolchain = "//build/toolchain/linux:x64"
-  # V8 builds mksnapshot for the target word size, and picks clang_x86 for a
-  # 32-bit target unless told otherwise.
-  v8_snapshot_toolchain = "//build/toolchain/linux:x86"
+  # The host here is arm64 Linux in a container. Naming the x64 toolchain
+  # sends -m64 -msse3 to an aarch64 gcc, which answers "unrecognized
+  # command-line option" -- 2,882 of them, the largest single group of
+  # failures in the first real compile.
+  host_toolchain = "//build/toolchain/linux:arm64"
+  # V8 builds mksnapshot for the target word size and picks clang_x86 for a
+  # 32-bit target. Pointing it at the gcc x86 toolchain traded one problem for
+  # another: that is a *Linux* x86 toolchain, and this container has no 32-bit
+  # glibc, so 592 compiles died on <bits/libc-header-start.h>. mksnapshot runs
+  # on the host, so build it for the host word size; V8 can emit a 32-bit
+  # snapshot from a 64-bit mksnapshot.
+  v8_snapshot_toolchain = "//build/toolchain/linux:arm64"
   use_gold = false
   use_lld = false
   treat_warnings_as_errors = false
