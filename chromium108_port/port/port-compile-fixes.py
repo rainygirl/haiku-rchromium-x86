@@ -8,6 +8,11 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # quiche uses int64_t in a header that never includes <cstdint>; it
+    # arrived transitively on glibc and does not here.
+    ("net/third_party/quiche/src/quiche/http2/adapter/window_manager.h",
+     "#include <functional>",
+     "#include <cstdint>\n#include <functional>"),
     # Not a Haiku problem, a gcc-versus-clang one, and it lands on the host
     # toolchain as much as the target. A constructor cannot be named with an
     # explicit template argument list: inside the class,

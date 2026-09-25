@@ -99,7 +99,7 @@ scoped_refptr<gfx::NativePixmap> HaikuSurfaceFactory::CreateNativePixmap(
     gfx::Size size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
-    base::Optional<gfx::Size> framebuffer_size) {
+    absl::optional<gfx::Size> framebuffer_size) {
   return nullptr;
 }
 

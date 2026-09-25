@@ -105,7 +105,7 @@ void HaikuClipboard::RequestClipboardData(ClipboardBuffer buffer,
                                           const std::string& mime_type,
                                           DataMap* data_map,
                                           RequestDataClosure callback) {
-  base::Optional<Data> result;
+  absl::optional<Data> result;
 
   if (buffer == ClipboardBuffer::kCopyPaste && be_clipboard != nullptr &&
       be_clipboard->Lock()) {

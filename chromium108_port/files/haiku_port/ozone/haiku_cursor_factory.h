@@ -5,7 +5,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/cursor/cursor_factory.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-forward.h"
 
@@ -35,7 +35,7 @@ class HaikuCursorFactory : public CursorFactory {
   HaikuCursorFactory(const HaikuCursorFactory&) = delete;
   HaikuCursorFactory& operator=(const HaikuCursorFactory&) = delete;
 
-  base::Optional<PlatformCursor> GetDefaultCursor(
+  absl::optional<PlatformCursor> GetDefaultCursor(
       mojom::CursorType type) override;
   PlatformCursor CreateImageCursor(const SkBitmap& bitmap,
                                    const gfx::Point& hotspot) override;

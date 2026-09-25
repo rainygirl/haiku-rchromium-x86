@@ -71,8 +71,9 @@ source_set("ozone") {
     "//base",
     "//skia",
     "//ui/base",
+    # 87 -> 108: cursor_base was folded into the one cursor component. The
+    # name survives only as its output_name, ui_base_cursor_base.
     "//ui/base/cursor",
-    "//ui/base/cursor:cursor_base",
     "//ui/base/ime",
     "//ui/display",
     "//ui/events",

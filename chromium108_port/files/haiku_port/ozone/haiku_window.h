@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/events/event_constants.h"
 // EventFlags lives in event_constants.h but EventType has its own header.
 #include "ui/events/types/event_type.h"

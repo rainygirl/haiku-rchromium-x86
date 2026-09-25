@@ -136,7 +136,7 @@ HaikuCursorFactory::~HaikuCursorFactory() {
   image_cursor_refs_.clear();
 }
 
-base::Optional<PlatformCursor> HaikuCursorFactory::GetDefaultCursor(
+absl::optional<PlatformCursor> HaikuCursorFactory::GetDefaultCursor(
     mojom::CursorType type) {
   const BCursorID id = CursorIdFor(type);
   auto found = default_cursors_.find(static_cast<int>(id));

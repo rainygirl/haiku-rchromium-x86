@@ -1,3 +1,14 @@
+# The external Ozone platform declaration, carried over from the 87 port.
+#
+# ui/ozone/BUILD.gn reads every one of these unconditionally, so a name it
+# wants and does not find is a hard gn error rather than a default. 108 added
+# three to the two 87 needed; all three are test scaffolding this platform
+# does not have.
 ozone_external_platforms = [ "haiku" ]
 ozone_external_platform_deps = [ "//haiku_port/ozone" ]
 ozone_external_platform_test_deps = []
+
+# New in 108.
+ozone_external_platform_integration_test_deps = []
+ozone_external_platform_ui_test_support_deps = []
+ozone_external_interactive_ui_tests_deps = []

@@ -46,8 +46,16 @@ GN=tools/gn/out-arm64/gn
   use_gtk = false
   use_x11 = false
   ozone_auto_platforms = false
-  ozone_platform = "headless"
-  ozone_platform_headless = true
+  # The Haiku Ozone backend, carried over from the 87 port. Until now this
+  # was ozone_platform = "headless", which builds but opens no window -- and
+  # which also drags in EGL: headless_surface_factory.cc is a GLOzoneEGL
+  # subclass, and with use_egl false on Haiku the EGL headers it needs are
+  # never included. That accounted for 400 errors, and fixing them would
+  # have meant repairing code this port does not use. The Haiku platform
+  # draws through BView and has no EGL at all.
+  ozone_platform = "haiku"
+  ozone_platform_external = true
+  ozone_extra_path = "//haiku_port/ozone_extra.gni"
   use_v8_context_snapshot = false
   # The source tarball has no bundled clang -- that arrives with gclient sync,
   # and update.py refuses with "Did you run gclient sync?". The host toolchain
@@ -86,7 +94,6 @@ GN=tools/gn/out-arm64/gn
   v8_symbol_level = 0
   # From the 87 port args, which are the closest thing to a known-good
   # configuration this port has.
-  enable_web_speech = false
   proprietary_codecs = true
   ffmpeg_branding = "Chrome"
   # Torque is built for the host and its output is not host-independent:

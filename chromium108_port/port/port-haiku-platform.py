@@ -27,6 +27,27 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # EGLDisplayPlatform is the one EGL class in gl_display.h left outside
+    # the USE_EGL guard -- GLDisplayEGL right below it is inside one. It
+    # uses EGLNativeDisplayType and EGL_DEFAULT_DISPLAY, which come from
+    # <EGL/egl.h>, which the file includes only under USE_EGL. Nothing has
+    # noticed because no in-tree platform builds this header with use_egl
+    # false.
+    ("ui/gl/gl_display.h",
+     "class EGLDisplayPlatform {",
+     "#if defined(USE_EGL)\nclass EGLDisplayPlatform {"),
+    ("ui/gl/gl_display.h",
+     "  EGLNativeDisplayType display_;\n"
+     "  // 0 for default, or EGL_PLATFORM_* enum.\n"
+     "  int platform_;\n"
+     "  bool valid_;\n"
+     "};",
+     "  EGLNativeDisplayType display_;\n"
+     "  // 0 for default, or EGL_PLATFORM_* enum.\n"
+     "  int platform_;\n"
+     "  bool valid_;\n"
+     "};\n"
+     "#endif  // defined(USE_EGL)"),
     # The same guard as in base/files/file.h, one file over: the systems
     # whose plain stat() is already the large-file one. Haiku is another.
     ("base/files/file_posix.cc",
