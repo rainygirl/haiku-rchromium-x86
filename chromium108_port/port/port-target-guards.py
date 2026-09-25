@@ -19,6 +19,38 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # fontconfig compiles its paths in and they are Linux's: there is
+    # no /etc and no /var on Haiku, and the fonts are elsewhere.
+    ("third_party/fontconfig/BUILD.gn",
+     '    defines = [\n      "HAVE_CONFIG_H",\n      "FC_CACHEDIR=\\"/var/cache/fontconfig\\"",\n      "FC_TEMPLATEDIR=\\"/usr/share/fontconfig/conf.avail\\"",\n      "FONTCONFIG_PATH=\\"/etc/fonts\\"",\n    ]',
+     '    if (is_haiku) {\n      # UNVERIFIED against a running Haiku. If the browser renders no text,\n      # start here: fontconfig finds no fonts at all without a fonts.conf to\n      # read, and FONTCONFIG_PATH is where it looks for one.\n      defines = [\n        "HAVE_CONFIG_H",\n        "FC_CACHEDIR=\\"/boot/home/config/cache/fontconfig\\"",\n        "FC_TEMPLATEDIR=\\"/boot/system/data/fontconfig/conf.avail\\"",\n        "FONTCONFIG_PATH=\\"/boot/system/settings/fonts\\"",\n      ]\n    } else {\n      defines = [\n        "HAVE_CONFIG_H",\n        "FC_CACHEDIR=\\"/var/cache/fontconfig\\"",\n        "FC_TEMPLATEDIR=\\"/usr/share/fontconfig/conf.avail\\"",\n        "FONTCONFIG_PATH=\\"/etc/fonts\\"",\n      ]\n    }'),
+    # skia picks its font backend by OS and Haiku matched none of them, so
+    # this build had no SkFontMgr at all -- a browser that renders no text.
+    # Haiku joins the fontconfig backend, which is the one the 87 port used
+    # and the one Chromium carries its own copy of, so nothing has to be
+    # installed on the target.
+    ("skia/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "//third_party/skia/src/ports/SkFontConfigInterface.cpp",',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     "    sources += [\n"
+     '      "//third_party/skia/src/ports/SkFontConfigInterface.cpp",'),
+    ("skia/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    deps += [\n"
+     '      "//third_party/expat",\n'
+     '      "//third_party/fontconfig",\n'
+     '      "//third_party/icu:icuuc",\n'
+     "    ]\n"
+     "  }",
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     "    deps += [\n"
+     '      "//third_party/expat",\n'
+     '      "//third_party/fontconfig",\n'
+     '      "//third_party/icu:icuuc",\n'
+     "    ]\n"
+     "  }"),
     # -fstack-protector emits calls to __stack_chk_fail_local, which on Haiku
     # lives in libssp_nonshared.a rather than in libroot. It is a static
     # archive, so it has to come after the objects that reference it -- and

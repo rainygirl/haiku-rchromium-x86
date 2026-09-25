@@ -108,6 +108,12 @@ GN=tools/gn/out-arm64/gn
   # compiling and failing on its own "must be modified for this OS" long
   # after ANGLE stopped asking for it.
   angle_shared_libvulkan = false
+  # Haiku gets no SkFontMgr sources at all otherwise -- skia picks its font
+  # backend by OS and Haiku matches none of them, which would mean a browser
+  # that renders no text. The 87 port went through fontconfig, which Haiku
+  # has a package for; Chromium carries its own copy, so the port does not
+  # depend on that package being installed.
+  use_bundled_fontconfig = true
   # Debug info for a 200 MB binary on a machine that will never run a
   # debugger on it, at the cost of every compile and every link. The 87
   # port set all three to 0 as well.

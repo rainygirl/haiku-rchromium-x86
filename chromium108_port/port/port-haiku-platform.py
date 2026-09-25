@@ -27,6 +27,53 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # Haiku's struct dirent has no d_type. The 87 port guarded the four
+    # places fontconfig reads it (patch 0021); turning the define off does
+    # the same thing in one line, because each of those sites is already an
+    # #ifdef with an else that calls stat().
+    ("third_party/fontconfig/include/config.h",
+     "#define HAVE_STRUCT_DIRENT_D_TYPE 1",
+     "#if !defined(__HAIKU__)\n#define HAVE_STRUCT_DIRENT_D_TYPE 1\n#endif"),
+    # Haiku has fstatvfs but none of the Linux filesystem headers, and none
+    # of the type-name members fontconfig looks for. This is the 87 port's
+    # patch 0020 carried over: guard the Linux includes, and answer
+    # FcFStatFs with a plain fstatvfs.
+    ("third_party/fontconfig/src/src/fcstat.c",
+     "#ifdef HAVE_SYS_VFS_H\n#include <sys/vfs.h>\n#endif",
+     "#if defined(HAVE_SYS_VFS_H) && !defined(__HAIKU__)\n"
+     "#include <sys/vfs.h>\n#endif"),
+    ("third_party/fontconfig/src/src/fcstat.c",
+     "#ifdef HAVE_SYS_STATFS_H\n#include <sys/statfs.h>\n#endif",
+     "#if defined(HAVE_SYS_STATFS_H) && !defined(__HAIKU__)\n"
+     "#include <sys/statfs.h>\n#endif"),
+    ("third_party/fontconfig/src/src/fcstat.c",
+     "#ifdef HAVE_SYS_MOUNT_H\n#include <sys/mount.h>\n#endif",
+     "#if defined(HAVE_SYS_MOUNT_H) && !defined(__HAIKU__)\n"
+     "#include <sys/mount.h>\n#endif"),
+    ("third_party/fontconfig/src/src/fcstat.c",
+     "#if defined(HAVE_FSTATVFS) && (defined(HAVE_STRUCT_STATVFS_F_BASETYPE) || defined(HAVE_STRUCT_STATVFS_F_FSTYPENAME))\n"
+     "    struct statvfs buf;",
+     "#if defined(__HAIKU__)\n"
+     "    struct statvfs buf;\n"
+     "\n"
+     "    memset (statb, 0, sizeof (FcStatFS));\n"
+     "\n"
+     "    /* Haiku exposes fstatvfs(), but no filesystem type-name member. */\n"
+     "    ret = fstatvfs (fd, &buf);\n"
+     "#elif defined(HAVE_FSTATVFS) && (defined(HAVE_STRUCT_STATVFS_F_BASETYPE) || defined(HAVE_STRUCT_STATVFS_F_FSTYPENAME))\n"
+     "    struct statvfs buf;"),
+    # fontconfig reports its config files through dgettext, and Haiku keeps
+    # gettext in a separate package whose headers live in headers/x86 --
+    # 177 directories including all of Qt, which is not something to put on
+    # every compile for one header. Without NLS, fcint.h defines
+    # dgettext(d, s) as s and nothing is needed. The strings it would have
+    # translated are diagnostics for a config file this port does not ship.
+    #
+    # The 87 port went the other way and linked -lintl (patch 0071). Both
+    # work; this one needs no package installed on the target.
+    ("third_party/fontconfig/include/config.h",
+     "#define ENABLE_NLS 1",
+     "#if !defined(__HAIKU__)\n#define ENABLE_NLS 1\n#endif"),
     # setproctitle rewrites argv in place so that ps shows something useful.
     # Haiku has no such call, and Deskbar names a team after its executable
     # regardless -- which the 87 port already recorded as a limitation. The
