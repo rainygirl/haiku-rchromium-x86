@@ -27,6 +27,27 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # An in-product-help feature constant, declared and defined for six
+    # platforms and used unconditionally by the autofill suggestion
+    # generator. Haiku is a seventh; the alternative is guarding the use
+    # site, which would mean the virtual card suggestion silently loses its
+    # IPH rather than the constant simply existing.
+    ("components/feature_engagement/public/feature_constants.h",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n"
+     "BASE_DECLARE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature);",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "BASE_DECLARE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature);"),
+    ("components/feature_engagement/public/feature_constants.cc",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n"
+     "BASE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature,",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "BASE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature,"),
     # Haiku's struct dirent has no d_type. The 87 port guarded the four
     # places fontconfig reads it (patch 0021); turning the define off does
     # the same thing in one line, because each of those sites is already an

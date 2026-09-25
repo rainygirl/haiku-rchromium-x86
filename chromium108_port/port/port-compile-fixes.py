@@ -8,6 +8,24 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # This file forward-declares WebContentsViewDelegate and returns a null
+    # unique_ptr of it. Destroying that unique_ptr -- even a temporary that
+    # never owned anything -- instantiates default_delete, which needs the
+    # complete type. clang accepts it; gcc does not. Including the real
+    # header is the fix, and costs nothing: the function still returns
+    # nullptr.
+    ("content/shell/browser/shell_web_contents_view_delegate_aura.cc",
+     "#include <memory>\n"
+     "\n"
+     "namespace content {\n"
+     "class WebContents;\n"
+     "class WebContentsViewDelegate;",
+     "#include <memory>\n"
+     "\n"
+     '#include "content/public/browser/web_contents_view_delegate.h"\n'
+     "\n"
+     "namespace content {\n"
+     "class WebContents;"),
     # Enterprise policy keys are generated only for the platforms each policy
     # declares in its supported_on list, and "haiku" appears in none of them,
     # so policy::key::kProxySettings and forty others were never emitted.

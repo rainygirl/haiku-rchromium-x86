@@ -54,18 +54,22 @@ if [ -d "$FONTDIR" ] || mkdir -p "$FONTDIR"; then
     echo "  placeholder fonts: $made"
 fi
 
-# content/test/data/web_ui_mojo_test.html is a test fixture the source
-# tarball omits, and content_shell is testonly so its resource bundle wants
-# it. What it contains does not matter to this port -- nothing here runs the
-# web UI mojo test -- but grit will not build a .pak with a missing input.
-WEBUI=$SRC/content/test/data/web_ui_mojo_test.html
-if [ ! -e "$WEBUI" ]; then
-	mkdir -p "$(dirname "$WEBUI")"
-	cat > "$WEBUI" <<'HTML'
-<!doctype html>
-<!-- Placeholder. The real fixture is not in the source tarball; this file
-     exists so grit can build the resource bundle. -->
-<html><body></body></html>
-HTML
-	echo "  created placeholder content/test/data/web_ui_mojo_test.html"
-fi
+# content/test/web_ui_mojo_test_resources.grd names four data files the
+# source tarball omits, and content_shell is testonly so its resource bundle
+# wants them. What they contain does not matter to this port -- nothing here
+# runs the web UI mojo test -- but grit will not build a .pak with a missing
+# input.
+for f in web_ui_mojo_test.html web_ui_mojo_native.html; do
+	p=$SRC/content/test/data/$f
+	[ -e "$p" ] && continue
+	mkdir -p "$(dirname "$p")"
+	printf '<!doctype html>\n<!-- Placeholder: not in the source tarball. -->\n<html><body></body></html>\n' > "$p"
+	echo "  created placeholder content/test/data/$f"
+done
+for f in web_ui_mojo_test.js web_ui_mojo_native.js; do
+	p=$SRC/content/test/data/$f
+	[ -e "$p" ] && continue
+	mkdir -p "$(dirname "$p")"
+	printf '// Placeholder: not in the source tarball.\n' > "$p"
+	echo "  created placeholder content/test/data/$f"
+done

@@ -19,6 +19,36 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # ffmpeg links -lrt "for clock_gettime on precise", says the comment --
+    # Ubuntu 12.04, where clock_gettime had not yet moved into libc. Haiku
+    # has it in libroot and no librt at all, so the final link of
+    # content_shell stopped at "cannot find -lrt". -lm and -lz stay: Haiku
+    # has both.
+    ("third_party/ffmpeg/BUILD.gn",
+     "      # librt for clock_gettime on precise\n"
+     "      libs += [\n"
+     '        "m",\n'
+     '        "z",\n'
+     '        "rt",\n'
+     "      ]",
+     "      # librt for clock_gettime on precise\n"
+     "      libs += [\n"
+     '        "m",\n'
+     '        "z",\n'
+     "      ]\n"
+     "      if (!is_haiku) {\n"
+     "        # Haiku has clock_gettime in libroot and ships no librt.\n"
+     '        libs += [ "rt" ]\n'
+     "      }"),
+    # The zygote is a fork server with a namespace sandbox around it, and
+    # Haiku has neither. use_zygote_handle is derived from is_posix, which
+    # Haiku satisfies -- so content_main_runner_impl.cc compiled the zygote
+    # path and called ContentMainDelegate::ZygoteStarting and ZygoteForked,
+    # which are declared for Linux and ChromeOS only. The 87 port skipped
+    # the zygote too (patch 0076).
+    ("content/public/common/zygote/features.gni",
+     "use_zygote_handle = is_posix && !is_android && !is_mac",
+     "use_zygote_handle = is_posix && !is_android && !is_mac && !is_haiku"),
     # Safe Browsing filters its download-file-type list by platform and
     # Haiku is not one the protocol knows, so gn picked the deliberate
     # "unknown_target_arch" and the generator refused. The list says which
