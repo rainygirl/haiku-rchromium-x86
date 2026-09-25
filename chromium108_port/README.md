@@ -45,3 +45,47 @@ Chromium 154 (vanilla source, systematic injection, 46 milestones newer).
 Neither applies directly. The 87 patches are addressed at a
 qtwebengine-chromium layout with `chromium/`, `gn/` and `ninja/` at the
 checkout root, so they do not even path-match a vanilla tarball.
+
+## Where gn gen has got to (2026-09-25)
+
+Seven unresolved dependencies, all of them test and crash-reporting targets
+that content_shell does not use:
+
+    //third_party/angle/src/tests   (5)   graphics tests
+    //third_party/breakpad          (4)   crash reporter; the 87 port drops it
+    //third_party/dawn/.../common   (2)   WebGPU
+
+They are pulled in by `//chrome/test` and `//tools/perf`, neither of which is
+being built. Everything before that now resolves: platform detection, the
+toolchain, grit, nss, pkg-config against the Haiku sysroot.
+
+### What had to be got past, in order
+
+**gn gen evaluates the whole tree.** Not the requested target's graph -- every
+BUILD.gn it can reach. So asserts in chrome/ stop a content_shell build.
+Narrowing the root `gn_all` group does not help; that was tried twice, once
+per-arm and once by replacing the group, and chrome/ was read regardless.
+`port-os-asserts.py` relaxes the desktop-platform asserts instead: 37 files,
+by pattern rather than by name, after four rounds of naming files produced
+four more.
+
+**Equality asserts must be left alone.** `grit_args.gni` reads
+`assert(toolkit_views == (is_chromeos || is_fuchsia || is_linux || ...))`.
+Adding `|| is_haiku` to the right-hand side turns a passing assert into a
+failing one, because toolkit_views is off here. The rule now skips any assert
+containing `==` or `!=`.
+
+**Do not force toolkit_views = false as a global arg.** Its default is derived
+from the OS list, which already excludes Haiku. Setting it globally also sets
+it for the *host* toolchain, where is_linux is true -- and then the equality
+above fails for the host.
+
+**The tarball has no bundled clang.** `update.py` answers "Did you run gclient
+sync?". Both `host_toolchain` and `v8_snapshot_toolchain` have to name the gcc
+toolchains explicitly; left to default they pick `clang_x64` and `clang_x86`
+and ask for a clang that was never downloaded.
+
+**pkg-config needs the Haiku sysroot.** `PKG_CONFIG_PATH`,
+`PKG_CONFIG_LIBDIR` and `PKG_CONFIG_SYSROOT_DIR` all point into
+`cross-tools-x86/i586-pc-haiku`; the VAIO's 136 `.pc` files came over with it.
+Without this, nss stops the configure with "Could not run pkg-config".
