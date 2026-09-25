@@ -18,6 +18,7 @@ GN=tools/gn/out-arm64/gn
 "$GN" gen out/haiku-x86 --args='
   target_os = "haiku"
   haiku_cross_bin = "/build/xwrappers"
+  haiku_sysroot = "/build/generated.x86only/cross-tools-x86/i586-pc-haiku"
   target_cpu = "x86"
   is_debug = false
   is_component_build = false

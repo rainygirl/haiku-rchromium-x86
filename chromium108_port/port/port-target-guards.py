@@ -19,6 +19,25 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # content_shell's data_deps pull in breakpad's dump_syms and
+    # minidump_stackwalk on every posix, which includes Haiku now. They are
+    # symbol tools, not part of running a browser, and breakpad's client
+    # wants link.h, sys/ucontext.h and sys/syscall.h -- none of which Haiku
+    # has. The 87 port dropped the crash reporter outright
+    # (0068-drop-crash-reporter-client-on-haiku); this is the same call.
+    ("content/shell/BUILD.gn",
+     "  if (is_posix) {\n"
+     "    data_deps += [\n"
+     '      "//third_party/breakpad:dump_syms",\n'
+     '      "//third_party/breakpad:minidump_stackwalk",\n'
+     "    ]\n"
+     "  }",
+     "  if (is_posix && !is_haiku) {\n"
+     "    data_deps += [\n"
+     '      "//third_party/breakpad:dump_syms",\n'
+     '      "//third_party/breakpad:minidump_stackwalk",\n'
+     "    ]\n"
+     "  }"),
     # The root BUILD.gn's chromium_builder_perf group names angle_perftests
     # too. Narrowing gn_all left this one, which is why the same error kept
     # coming back after each apparently successful edit: three separate

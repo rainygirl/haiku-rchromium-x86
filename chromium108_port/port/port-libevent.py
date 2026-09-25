@@ -58,11 +58,12 @@ if 'include_dirs = [ "haiku" ]' not in s:
     ]
     include_dirs = [ "linux" ]'''
     new = '''  } else if (is_haiku) {
-    # No epoll on Haiku; poll(2) is the backend.
+    # No epoll on Haiku. poll.c is already in the common source list above,
+    # so adding it here makes gn refuse the target: "generates two object
+    # files with the same name".
     sources += [
       "haiku/config.h",
       "haiku/event-config.h",
-      "poll.c",
     ]
     include_dirs = [ "haiku" ]
   } else if (is_linux || is_chromeos) {
@@ -75,3 +76,18 @@ if 'include_dirs = [ "haiku" ]' not in s:
     assert old in s, "libevent BUILD.gn does not look as expected"
     open(build, "w").write(s.replace(old, new, 1))
     print("  patched third_party/libevent/BUILD.gn")
+
+# And the Chromium-specific dispatcher, which is a separate file from the
+# per-OS ones and has its own chain ending in #error.
+disp = os.path.join(lib, "event-config.h")
+t = open(disp).read()
+if "haiku/event-config.h" not in t:
+    old = ('#elif defined(__linux__)\n'
+           '#include "third_party/libevent/linux/event-config.h"')
+    new = ('#elif defined(__HAIKU__)\n'
+           '#include "third_party/libevent/haiku/event-config.h"\n'
+           '#elif defined(__linux__)\n'
+           '#include "third_party/libevent/linux/event-config.h"')
+    assert old in t, "libevent event-config.h dispatcher is not as expected"
+    open(disp, "w").write(t.replace(old, new, 1))
+    print("  patched third_party/libevent/event-config.h")
