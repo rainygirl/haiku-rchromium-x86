@@ -4,7 +4,15 @@
 # point at this stage is the shape of the work, not one error.
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-dev >/dev/null 2>&1
+apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-dev nodejs >/dev/null 2>&1
+# devtools-frontend runs its build steps through third_party/node/node.py,
+# which looks for a bundled node under third_party/node/linux/node-linux-x64.
+# The source tarball does not carry it -- that arrives with gclient sync --
+# and the copy it would carry is an x86-64 binary, which is no use on this
+# arm64 host anyway. Point the path at the distribution's node.
+NODEDIR=/build/chromium108/third_party/node/linux/node-linux-x64/bin
+mkdir -p "$NODEDIR"
+ln -sf /usr/bin/node "$NODEDIR/node"
 export PATH=/build/xwrappers:$PATH
 SYSROOT=/build/generated.x86only/cross-tools-x86/i586-pc-haiku
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"

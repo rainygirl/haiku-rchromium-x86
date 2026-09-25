@@ -8,6 +8,18 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # Not a Haiku problem, a gcc-versus-clang one, and it lands on the host
+    # toolchain as much as the target. A constructor cannot be named with an
+    # explicit template argument list: inside the class,
+    # CheckedThreadLocalOwnedPointer<T> is the injected-class-name, and using
+    # it with <T> makes the declaration a function returning that type rather
+    # than a constructor. clang accepts it; gcc says "expected unqualified-id
+    # before 'const'", 240 times across the two deleted members.
+    ("base/threading/thread_local_internal.h",
+     "  CheckedThreadLocalOwnedPointer<T>(const CheckedThreadLocalOwnedPointer<T>&) =\n"
+     "      delete;",
+     "  CheckedThreadLocalOwnedPointer(const CheckedThreadLocalOwnedPointer<T>&) =\n"
+     "      delete;"),
     # partition_alloc_forward.h uses uintptr_t without including <cstdint>.
     # 108 was built with clang, whose libc++ pulls it in transitively; gcc 12
     # does not, and the error lands on the host x64 build before Haiku is

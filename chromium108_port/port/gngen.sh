@@ -2,7 +2,7 @@
 # First gn gen for the Haiku target. The point is the error, not success.
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y python3 pkg-config >/dev/null 2>&1
+apt-get -qq install -y python3 pkg-config libnss3-dev >/dev/null 2>&1
 # pkg-config has to find Haiku's .pc files, not the container's. They came
 # over with the sysroot; the 87 port sets the same variable on the VAIO.
 SYSROOT=/build/generated.x86only/cross-tools-x86/i586-pc-haiku
@@ -73,4 +73,16 @@ GN=tools/gn/out-arm64/gn
   use_lld = false
   treat_warnings_as_errors = false
   v8_use_external_startup_data = false
+  # Torque is built for the host and its output is not host-independent:
+  # the field types in torque-generated/ are chosen by V8_EXTERNAL_CODE_SPACE
+  # as compiled into the torque binary. On an arm64 host that is on, so it
+  # emitted CodeDataContainer fields; the x86 target has no pointer
+  # compression, so CodeT is Code there, and 473 conversions failed -- all of
+  # them "could not convert CodeDataContainer to CodeT {aka Code}", none of
+  # them in code anybody wrote. Turning pointer compression off at the top
+  # level reaches every toolchain, which makes external code space false in
+  # both, which makes the two agree. Nothing is lost: pointer compression is
+  # a 64-bit feature and this target is 32-bit.
+  v8_enable_pointer_compression = false
+  v8_enable_sandbox = false
 ' 2>&1 | head -30

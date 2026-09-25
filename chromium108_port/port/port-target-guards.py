@@ -19,6 +19,14 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # libevent is the one target that needs Haiku's BSD headers, for
+    # sys/queue.h. It gets them through a config rather than through the
+    # toolchain's global flags, because headers/bsd also carries a
+    # sys/param.h defining ALIGN(p) -- and dav1d defines ALIGN(ll, a).
+    ("third_party/libevent/BUILD.gn",
+     '    include_dirs = [ "haiku" ]',
+     '    include_dirs = [ "haiku" ]\n'
+     '    configs += [ "//build/config/haiku:bsd" ]'),
     # The crash reporter is the last thing dragging breakpad's Linux client
     # into the build, through crash_key_lib. Chromium already has the switch
     # for a platform without one -- use_crash_key_stubs, which Fuchsia sets --
