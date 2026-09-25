@@ -19,6 +19,39 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # Safe Browsing filters its download-file-type list by platform and
+    # Haiku is not one the protocol knows, so gn picked the deliberate
+    # "unknown_target_arch" and the generator refused. The list says which
+    # extensions to warn about on which platform; Linux's is the one that
+    # applies here -- no .exe, no .dmg, no .apk.
+    ("components/safe_browsing/content/resources/BUILD.gn",
+     '  } else if (is_linux) {\n'
+     '    target_arch = "linux"',
+     '  } else if (is_linux || is_haiku) {\n'
+     '    target_arch = "linux"'),
+    # content/common gets fontconfig's include path through this dep, which
+    # is grouped with the Linux zygote sandbox support and the setproctitle
+    # shim -- neither of which Haiku builds. So it takes the one dep it
+    # needs rather than joining the block.
+    ("content/common/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    deps += [\n"
+     '      ":sandbox_support_linux",\n'
+     '      ":set_process_title_linux",\n'
+     '      "//third_party/fontconfig",\n'
+     "    ]\n"
+     "  }",
+     "  if (is_linux || is_chromeos) {\n"
+     "    deps += [\n"
+     '      ":sandbox_support_linux",\n'
+     '      ":set_process_title_linux",\n'
+     '      "//third_party/fontconfig",\n'
+     "    ]\n"
+     "  }\n"
+     "\n"
+     "  if (is_haiku) {\n"
+     '    deps += [ "//third_party/fontconfig" ]\n'
+     "  }"),
     # fontconfig compiles its paths in and they are Linux's: there is
     # no /etc and no /var on Haiku, and the fonts are elsewhere.
     ("third_party/fontconfig/BUILD.gn",

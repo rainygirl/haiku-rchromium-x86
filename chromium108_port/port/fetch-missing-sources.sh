@@ -53,3 +53,19 @@ if [ -d "$FONTDIR" ] || mkdir -p "$FONTDIR"; then
     done
     echo "  placeholder fonts: $made"
 fi
+
+# content/test/data/web_ui_mojo_test.html is a test fixture the source
+# tarball omits, and content_shell is testonly so its resource bundle wants
+# it. What it contains does not matter to this port -- nothing here runs the
+# web UI mojo test -- but grit will not build a .pak with a missing input.
+WEBUI=$SRC/content/test/data/web_ui_mojo_test.html
+if [ ! -e "$WEBUI" ]; then
+	mkdir -p "$(dirname "$WEBUI")"
+	cat > "$WEBUI" <<'HTML'
+<!doctype html>
+<!-- Placeholder. The real fixture is not in the source tarball; this file
+     exists so grit can build the resource bundle. -->
+<html><body></body></html>
+HTML
+	echo "  created placeholder content/test/data/web_ui_mojo_test.html"
+fi
