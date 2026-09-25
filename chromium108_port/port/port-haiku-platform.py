@@ -27,6 +27,110 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # MessagePumpForUI is chosen by OS and the chain ends in an #error.
+    # Haiku takes MessagePumpLibevent, the same one Linux without GLib and
+    # the BSDs take. libevent already builds here.
+    ("base/message_loop/message_pump_for_ui.h",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_BSD)\n"
+     "using MessagePumpForUI = MessagePumpLibevent;",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_BSD) || BUILDFLAG(IS_HAIKU)\n"
+     "using MessagePumpForUI = MessagePumpLibevent;"),
+
+    # stat_wrapper_t is "struct stat64" on any POSIX that is not one of the
+    # listed exceptions. Haiku has no stat64 and needs none: its off_t is
+    # 64-bit and struct stat is the large-file struct. It joins the BSDs.
+    ("base/files/file.h",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
+     "    BUILDFLAG(IS_HAIKU) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)"),
+
+    # The third copy of export_template.h, this one webrtc's, failing the
+    # same self-test under gcc 13 for the same reason.
+    ("third_party/webrtc/rtc_base/system/rtc_export_template.h",
+     "RTC_EXPORT_TEMPLATE_TEST(DEFAULT, );  // NOLINT\n"
+     'RTC_EXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\n'
+     "RTC_EXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));\n"
+     "RTC_EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));",
+     "#if !defined(__HAIKU__)\n"
+     "RTC_EXPORT_TEMPLATE_TEST(DEFAULT, );  // NOLINT\n"
+     'RTC_EXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\n'
+     "RTC_EXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));\n"
+     "RTC_EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));\n"
+     "#endif  // !defined(__HAIKU__)"),
+
+    # std::uintptr_t needs <cstdint>, which this header got transitively on
+    # glibc and does not here.
+    ("base/check_op.h",
+     "#include <cstddef>\n#include <string>",
+     "#include <cstddef>\n#include <cstdint>\n#include <string>"),
+
+    # V8's sampler includes <sys/syscall.h> everywhere but QNX and AIX.
+    ("v8/src/libsampler/sampler.cc",
+     "#if !V8_OS_QNX && !V8_OS_AIX\n#include <sys/syscall.h>\n#endif",
+     "#if !V8_OS_QNX && !V8_OS_AIX && !V8_OS_HAIKU\n"
+     "#include <sys/syscall.h>\n#endif"),
+
+    # The crash reporter, again -- crashpad this time rather than breakpad,
+    # and reached through //components/crash/core/app. crashpad's
+    # address_types.h ends in "#error Unhandled OS type", and teaching it
+    # about Haiku would only move the problem: its client wants a handler
+    # process, ptrace and /proc. The 87 port dropped it (patches 0060 and
+    # 0068 and upstream U0007) and this is the same cut at the same three
+    # places: the deps, the client source that subclasses
+    # CrashReporterClient, and the call sites. Fuchsia already opts out of
+    # exactly this, so each guard just gains a second name.
+    ("content/shell/app/shell_main_delegate.cc",
+     "#if !BUILDFLAG(IS_FUCHSIA)",
+     "#if !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_HAIKU)",
+     "all"),
+    ("content/shell/app/shell_main_delegate.cc",
+     "#endif  // !BUILDFLAG(IS_FUCHSIA)",
+     "#endif  // !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_HAIKU)"),
+    # keycode_converter builds a native-scancode -> DomCode table and picks
+    # the column by OS, ending in "#error Unsupported platform". Haiku takes
+    # the usb column, the same one Fuchsia takes, and that is a statement
+    # rather than a placeholder: it says this port has no native scancode
+    # mapping. It does not need one. The BeAPI backend in the 87 overlay
+    # goes through UsLayoutKeyboardCodeToDomCode() and never consults this
+    # table, so an xkb or evdev column here would be a mapping that is
+    # wrong and also unused.
+    ("ui/events/keycodes/dom/keycode_converter.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "#define DOM_CODE(usb, evdev, xkb, win, mac, code, id) \\\n"
+     "  { usb, usb, code }\n"
+     "#else\n"
+     "#error Unsupported platform",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "#define DOM_CODE(usb, evdev, xkb, win, mac, code, id) \\\n"
+     "  { usb, usb, code }\n"
+     "#else\n"
+     "#error Unsupported platform"),
+
+    # libphonenumber picks its lock by OS name too, and the fallback is
+    # lock_unsafe.h -- a dummy lock holding a const ThreadChecker. With
+    # NDEBUG the ThreadChecker is an empty class, and a const object of an
+    # empty class with no user-provided constructor cannot be initialized,
+    # which is what "uninitialized const member" meant. Haiku has pthreads
+    # and belongs in lock_posix.h, which is both correct and thread-safe.
+    ("third_party/libphonenumber/dist/cpp/src/phonenumbers/base/synchronization/lock.h",
+     "#elif defined(__linux__) || defined(__APPLE__) || defined(I18N_PHONENUMBERS_HAVE_POSIX_THREAD)",
+     "#elif defined(__linux__) || defined(__APPLE__) || defined(__HAIKU__) || \\\n"
+     "    defined(I18N_PHONENUMBERS_HAVE_POSIX_THREAD)"),
+
+    # <sys/syscall.h> is included unconditionally in both of these, for
+    # __NR_getrandom and for the clone/fork path. Haiku has neither the
+    # header nor raw syscall numbers -- its kernel interface is not a
+    # syscall table exposed to userland -- and the code that uses them is
+    # already behind IS_LINUX checks.
+    ("base/rand_util_posix.cc",
+     "#include <sys/syscall.h>\n",
+     "#if !defined(__HAIKU__)\n#include <sys/syscall.h>\n#endif\n"),
+    ("base/process/launch_posix.cc",
+     "#include <sys/syscall.h>\n",
+     "#if !defined(__HAIKU__)\n#include <sys/syscall.h>\n#endif\n"),
     # Chromium already has a mode for a POSIX without execinfo -- uclibc and
     # AIX are in it -- and it covers the whole file, not just the include.
     # Haiku has no execinfo.h and no backtrace(); it has its own debugger

@@ -19,6 +19,82 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # The sampling profiler's signal-based stack copier reads linux/futex.h
+    # and suspends a thread with a signal. Neither exists here; Haiku joins
+    # nacl and apple in not building it.
+    ("base/BUILD.gn",
+     "    if (!is_nacl && !is_apple) {\n"
+     "      sources += [\n"
+     '        "profiler/stack_base_address_posix.cc",',
+     "    if (!is_nacl && !is_apple && !is_haiku) {\n"
+     "      sources += [\n"
+     '        "profiler/stack_base_address_posix.cc",'),
+
+    # Two more webrtc targets want <ifaddrs.h>, which Haiku keeps in
+    # headers/bsd along with getifaddrs in libbsd.
+    ("third_party/webrtc/rtc_base/BUILD.gn",
+     'rtc_library("rtc_base") {\n',
+     'rtc_library("rtc_base") {\n'
+     '  if (is_haiku) {\n'
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     '  }\n'),
+    ("third_party/webrtc/rtc_base/BUILD.gn",
+     'rtc_library("threading") {\n',
+     'rtc_library("threading") {\n'
+     '  if (is_haiku) {\n'
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     '  }\n'),
+
+    # The crash reporter once more -- crashpad this time, reached through
+    # //components/crash/core/app. crashpad's address_types.h ends in
+    # "#error Unhandled OS type", and teaching it about Haiku would only
+    # move the problem: its client wants a handler process, ptrace and
+    # /proc. The 87 port dropped it (patches 0060, 0068, U0007) and this is
+    # the same cut. Fuchsia already opts out of exactly this, so the guards
+    # gain a second name.
+    ("content/shell/BUILD.gn",
+     "  if (is_fuchsia) {\n"
+     '    deps += [ "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy" ]\n'
+     "  } else {\n"
+     "    deps += [\n"
+     '      "//components/crash/content/browser",\n'
+     '      "//components/crash/core/app",\n'
+     "    ]\n"
+     "  }",
+     "  if (is_fuchsia) {\n"
+     '    deps += [ "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy" ]\n'
+     "  } else if (!is_haiku) {\n"
+     "    deps += [\n"
+     '      "//components/crash/content/browser",\n'
+     '      "//components/crash/core/app",\n'
+     "    ]\n"
+     "  }"),
+
+    # The source that subclasses CrashReporterClient goes with them.
+    # Compiling it without the library that defines the base class leaves
+    # its whole vtable undefined at the final link, which the 87 port found
+    # out the slow way. The removal has to sit in content_shell_app, which
+    # owns those sources -- gn rejects "sources -=" for an entry the target
+    # does not have.
+    ("content/shell/BUILD.gn",
+     "  if (!is_fuchsia) {\n"
+     "    deps += [\n"
+     '      "//components/crash/core/app",\n'
+     '      "//components/crash/core/app:test_support",\n'
+     "    ]\n"
+     "  }",
+     "  if (!is_fuchsia && !is_haiku) {\n"
+     "    deps += [\n"
+     '      "//components/crash/core/app",\n'
+     '      "//components/crash/core/app:test_support",\n'
+     "    ]\n"
+     "  }\n"
+     "  if (is_haiku) {\n"
+     "    sources -= [\n"
+     '      "app/shell_crash_reporter_client.cc",\n'
+     '      "app/shell_crash_reporter_client.h",\n'
+     "    ]\n"
+     "  }"),
     # Chromium already knows gcc cannot take ##__VA_ARGS__ in
     # standards-conforming mode -- the comment in this very block says so,
     # and the answer is -std=gnu++17 rather than -std=c++17. Haiku was not
