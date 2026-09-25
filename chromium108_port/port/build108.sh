@@ -4,7 +4,7 @@
 # point at this stage is the shape of the work, not one error.
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y build-essential python3 pkg-config ninja-build >/dev/null 2>&1
+apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-dev >/dev/null 2>&1
 export PATH=/build/xwrappers:$PATH
 SYSROOT=/build/generated.x86only/cross-tools-x86/i586-pc-haiku
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"

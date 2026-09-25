@@ -19,6 +19,32 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # The crash reporter is the last thing dragging breakpad's Linux client
+    # into the build, through crash_key_lib. Chromium already has the switch
+    # for a platform without one -- use_crash_key_stubs, which Fuchsia sets --
+    # and it compiles crash_key_stubs.cc instead. That is the whole fix; no
+    # dependency needs cutting by hand. breakpad's client is what wanted
+    # sys/ucontext.h, linux/limits.h and link.h, none of which Haiku has, and
+    # it could not have worked anyway: it reads /proc.
+    ("components/crash/core/common/BUILD.gn",
+     "  use_crash_key_stubs = is_fuchsia",
+     "  use_crash_key_stubs = is_fuchsia || is_haiku"),
+    # libxslt picks its config.h directory by OS and has no fallback, so on
+    # Haiku the include_dirs line named nothing and 19 translation units
+    # could not find config.h. libxml, one directory over, already lists
+    # Haiku alongside Linux for exactly this; libxslt just never got the
+    # same treatment. Linux's config.h is the right one -- the HAVE_* set it
+    # records is POSIX, and the places Haiku differs are not in it.
+    ("third_party/libxslt/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "linux/config.h" ]',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     '    sources += [ "linux/config.h" ]'),
+    ("third_party/libxslt/BUILD.gn",
+     "  if (is_linux || is_chromeos || is_android || is_fuchsia) {\n"
+     '    include_dirs = [ "linux" ]',
+     "  if (is_linux || is_chromeos || is_android || is_fuchsia || is_haiku) {\n"
+     '    include_dirs = [ "linux" ]'),
     # content_shell's data_deps pull in breakpad's dump_syms and
     # minidump_stackwalk on every posix, which includes Haiku now. They are
     # symbol tools, not part of running a browser, and breakpad's client
@@ -101,13 +127,25 @@ for rel, old, new in edits:
     except FileNotFoundError:
         print("  missing: %s" % rel)
         continue
-    # "already applied?" cannot be `new in s` when the edit removes a line:
-    # the shortened text is a substring of the original, so the check passes
-    # before anything is done and the edit is silently skipped. Ask whether
-    # the thing being removed is still there instead.
+    # Whether an edit has already been applied cannot be asked the same way
+    # for every edit, and getting it wrong is silent both ways.
+    #
+    #   removal (the replacement is a fragment of what it replaces): `new` is
+    #   a substring of the original too, so `new in s` is true before anything
+    #   is done and the edit is skipped forever.
+    #
+    #   addition (the replacement contains what it replaces, as perfetto's
+    #   does): `old` is still there afterwards, so `old in s` is true again
+    #   and the edit is applied a second and a third time.
+    #
+    # Which of the two an edit is can be read off the edit itself.
+    if new in old:
+        already = old not in s
+    else:
+        already = new in s
+    if already:
+        continue
     if old not in s:
-        if new in s:
-            continue
         print("  PATTERN NOT FOUND: %s" % rel)
         continue
     # Some guards repeat verbatim in one file; replace them all.
