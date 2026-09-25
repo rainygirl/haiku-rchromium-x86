@@ -27,6 +27,114 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # perfetto asks the OS for a thread id and, with every PERFETTO_OS_*
+    # flag at 0, lands in "Default to pthreads in case no OS is set", where
+    # PlatformThreadId is pthread_t. On Haiku that is a pointer, so the
+    # static_cast to uint32_t that the tracing code does is ill-formed.
+    # Haiku's own thread id is a small integer and find_thread(nullptr)
+    # returns it.
+    ("third_party/perfetto/include/perfetto/base/thread_utils.h",
+     "#else\n#include <pthread.h>\n#endif",
+     "#elif defined(__HAIKU__)\n#include <OS.h>\n"
+     "#else\n#include <pthread.h>\n#endif"),
+    ("third_party/perfetto/include/perfetto/base/thread_utils.h",
+     "#else  // Default to pthreads in case no OS is set.\n"
+     "using PlatformThreadId = pthread_t;",
+     "#elif defined(__HAIKU__)\n"
+     "using PlatformThreadId = int32_t;\n"
+     "inline PlatformThreadId GetThreadId() {\n"
+     "  return static_cast<int32_t>(find_thread(nullptr));\n"
+     "}\n"
+     "#else  // Default to pthreads in case no OS is set.\n"
+     "using PlatformThreadId = pthread_t;"),
+
+    # CLOCK_BOOTTIME is a Linux clock and Haiku does not define it. The
+    # code already treats it as something that may not work -- it calls
+    # clock_gettime and falls back to the wall clock if that fails -- so
+    # the fallback just has to be reachable when the constant is missing
+    # too. Guarding on the macro rather than on the OS keeps that local.
+    ("third_party/perfetto/include/perfetto/base/time.h",
+     "  static const clockid_t kBootTimeClockSource = [] {\n"
+     "    struct timespec ts = {};\n"
+     "    int res = clock_gettime(CLOCK_BOOTTIME, &ts);\n"
+     "    return res == 0 ? CLOCK_BOOTTIME : kWallTimeClockSource;\n"
+     "  }();",
+     "  static const clockid_t kBootTimeClockSource = [] {\n"
+     "#if defined(CLOCK_BOOTTIME)\n"
+     "    struct timespec ts = {};\n"
+     "    int res = clock_gettime(CLOCK_BOOTTIME, &ts);\n"
+     "    return res == 0 ? CLOCK_BOOTTIME : kWallTimeClockSource;\n"
+     "#else\n"
+     "    return kWallTimeClockSource;\n"
+     "#endif\n"
+     "  }();"),
+
+    # timegm exists on Haiku, in libbsd, declared in headers/bsd/time.h --
+    # which is not on the include path any more and should not be, because
+    # of the ALIGN collision that put it there. -lbsd is linked globally, so
+    # the function is present; only its declaration is missing, and one
+    # line supplies that.
+    ("third_party/perfetto/include/perfetto/base/time.h",
+     "inline int64_t TimeGm(struct tm* tms) {",
+     "#if defined(__HAIKU__)\n"
+     "extern \"C\" time_t timegm(struct tm*);\n"
+     "#endif\n"
+     "\n"
+     "inline int64_t TimeGm(struct tm* tms) {"),
+
+    # Haiku's struct dirent has no d_type -- it carries the device and inode
+    # numbers instead, which is a BeOS inheritance rather than an omission.
+    # stat() answers the same question at the cost of a syscall per entry,
+    # and this walk is not on any hot path.
+    ("third_party/perfetto/src/base/file_utils.cc",
+     "      if (dirent->d_type == DT_DIR) {\n"
+     "        dir_queue.push_back(cur_dir + dirent->d_name + '/');\n"
+     "      } else if (dirent->d_type == DT_REG) {\n"
+     "        const std::string full_path = cur_dir + dirent->d_name;\n"
+     "        PERFETTO_CHECK(full_path.length() > root_dir_path.length());\n"
+     "        output.push_back(full_path.substr(root_dir_path.length()));\n"
+     "      }",
+     "#if defined(__HAIKU__)\n"
+     "      const std::string full_path = cur_dir + dirent->d_name;\n"
+     "      struct stat entry_stat;\n"
+     "      if (stat(full_path.c_str(), &entry_stat) != 0)\n"
+     "        continue;\n"
+     "      if (S_ISDIR(entry_stat.st_mode)) {\n"
+     "        dir_queue.push_back(full_path + '/');\n"
+     "      } else if (S_ISREG(entry_stat.st_mode)) {\n"
+     "        PERFETTO_CHECK(full_path.length() > root_dir_path.length());\n"
+     "        output.push_back(full_path.substr(root_dir_path.length()));\n"
+     "      }\n"
+     "#else\n"
+     "      if (dirent->d_type == DT_DIR) {\n"
+     "        dir_queue.push_back(cur_dir + dirent->d_name + '/');\n"
+     "      } else if (dirent->d_type == DT_REG) {\n"
+     "        const std::string full_path = cur_dir + dirent->d_name;\n"
+     "        PERFETTO_CHECK(full_path.length() > root_dir_path.length());\n"
+     "        output.push_back(full_path.substr(root_dir_path.length()));\n"
+     "      }\n"
+     "#endif"),
+
+    # libphonenumber picks between a real ThreadChecker and an empty one by
+    # OS name. Haiku matched neither, so it got the empty class -- and a
+    # class with no members and no user-provided constructor cannot be
+    # declared const, which is what "uninitialized const member" means here.
+    # Haiku has pthreads; it belongs in the real one.
+    ("third_party/libphonenumber/dist/cpp/src/phonenumbers/base/thread_checker.h",
+     "    (defined(__linux__) || defined(__APPLE__) || defined(I18N_PHONENUMBERS_HAVE_POSIX_THREAD))",
+     "    (defined(__linux__) || defined(__APPLE__) || defined(__HAIKU__) || \\\n"
+     "     defined(I18N_PHONENUMBERS_HAVE_POSIX_THREAD))"),
+    # sys/syscall.h is included for gettid, unconditionally except on AIX
+    # and Fuchsia. Haiku has neither the header nor the call; the Haiku arm
+    # added to Stack::GetStackStart below is inside the file, which does not
+    # help when the file will not preprocess.
+    ("v8/src/base/platform/platform-posix.cc",
+     "#if !defined(_AIX) && !defined(V8_OS_FUCHSIA)\n"
+     "#include <sys/syscall.h>\n"
+     "#endif",
+     "#if !defined(_AIX) && !defined(V8_OS_FUCHSIA) && !defined(V8_OS_HAIKU)\n"
+     "#include <sys/syscall.h>\n"
+     "#endif"),
     # partition_alloc's own bug, surfaced by this libstdc++ rather than
     # caused by it. MetadataAllocator::operator== is not const, and the COW
     # std::string in Haiku's gcc 13 compares allocators as

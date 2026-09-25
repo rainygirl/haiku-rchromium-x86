@@ -19,6 +19,17 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # webrtc's net_helpers wants <ifaddrs.h>, which Haiku has in headers/bsd
+    # along with the getifaddrs implementation in libbsd. Same treatment as
+    # libevent: the directory goes on this target's include path and no
+    # further.
+    ("third_party/webrtc/rtc_base/BUILD.gn",
+     'rtc_library("net_helpers") {\n  sources = [',
+     'rtc_library("net_helpers") {\n'
+     '  if (is_haiku) {\n'
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     '  }\n'
+     '  sources = ['),
     # libevent is the one target that needs Haiku's BSD headers, for
     # sys/queue.h. It gets them through a config rather than through the
     # toolchain's global flags, because headers/bsd also carries a

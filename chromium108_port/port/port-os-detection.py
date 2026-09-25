@@ -81,12 +81,17 @@ edits = [
     # that check its own macro machinery, and gcc 13 does not expand
     # EXPORT_TEMPLATE_STYLE the way they expect. 539 errors, all from a
     # self-test. The macros it is testing work; only the test does not.
+    # One edit, anchored on all four lines at once. Two edits anchored on
+    # one line each is how the first attempt put an #endif in the middle of
+    # a comment: the comment above this block walks through the macro
+    # expansion and quotes "EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(...));"
+    # verbatim, twenty lines before the real one, and a single-line anchor
+    # cannot tell the two apart.
     ("v8/src/base/export-template.h",
-     "EXPORT_TEMPLATE_TEST(DEFAULT, );",
-     "#if !defined(__HAIKU__)\nEXPORT_TEMPLATE_TEST(DEFAULT, );"),
-    ("v8/src/base/export-template.h",
-     "EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));",
-     "EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));\n#endif"),
+     'EXPORT_TEMPLATE_TEST(DEFAULT, );\nEXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\nEXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));\nEXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));',
+     "#if !defined(__HAIKU__)\n"
+     'EXPORT_TEMPLATE_TEST(DEFAULT, );\nEXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\nEXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));\nEXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));'
+     "\n#endif  // !defined(__HAIKU__)"),
 ]
 
 done = 0

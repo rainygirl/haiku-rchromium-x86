@@ -85,4 +85,12 @@ GN=tools/gn/out-arm64/gn
   # a 64-bit feature and this target is 32-bit.
   v8_enable_pointer_compression = false
   v8_enable_sandbox = false
+  # use_nss_certs defaults to is_linux, and the host toolchain here IS Linux,
+  # so the host build of //crypto pulled in NSS headers the container does
+  # not have. Nothing on the Haiku side wants NSS: it is the client
+  # certificate store Chromium uses on desktop Linux, and the host only
+  # builds crypto to support host tools.
+  # (No apostrophes in here -- the whole block is one single-quoted
+  # shell argument, and one closed it.)
+  use_nss_certs = false
 ' 2>&1 | head -30
