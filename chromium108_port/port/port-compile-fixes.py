@@ -8,6 +8,22 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # Enterprise policy keys are generated only for the platforms each policy
+    # declares in its supported_on list, and "haiku" appears in none of them,
+    # so policy::key::kProxySettings and forty others were never emitted.
+    # The script already remaps one target_os to a template name; Haiku gets
+    # the same treatment and reads Linux's set. That is the right set: a
+    # policy on Haiku would be the same JSON file in the same place, and
+    # nothing here is Linux-kernel-specific.
+    ("components/policy/tools/generate_policy_source.py",
+     "  if target_platform == 'chromeos':\n"
+     "    target_platform = 'chrome_os'",
+     "  if target_platform == 'chromeos':\n"
+     "    target_platform = 'chrome_os'\n"
+     "  # Haiku is not a platform the templates know about. It reads Linux's\n"
+     "  # policies: same file, same location, nothing kernel-specific.\n"
+     "  if target_platform == 'haiku':\n"
+     "    target_platform = 'linux'"),
     # quiche uses int64_t in a header that never includes <cstdint>; it
     # arrived transitively on glibc and does not here.
     ("net/third_party/quiche/src/quiche/http2/adapter/window_manager.h",

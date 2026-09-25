@@ -19,6 +19,40 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # Native pixmaps are dmabuf, and Haiku has no dmabuf. These three files
+    # are gated on use_ozone, which Haiku satisfies without having any of
+    # what they need -- and one of them reaches for the Vulkan headers on
+    # the way. The Haiku backend allocates its bitmaps through BBitmap and
+    # never asks for a pixmap.
+    ("gpu/ipc/common/BUILD.gn",
+     "  if (use_ozone) {\n"
+     "    sources += [\n"
+     '      "gpu_memory_buffer_impl_native_pixmap.cc",',
+     "  if (use_ozone && !is_haiku) {\n"
+     "    sources += [\n"
+     '      "gpu_memory_buffer_impl_native_pixmap.cc",'),
+    ("gpu/ipc/service/BUILD.gn",
+     "  if (use_ozone) {\n"
+     "    sources += [\n"
+     '      "gpu_memory_buffer_factory_native_pixmap.cc",',
+     "  if (use_ozone && !is_haiku) {\n"
+     "    sources += [\n"
+     '      "gpu_memory_buffer_factory_native_pixmap.cc",'),
+    ("ui/gl/BUILD.gn",
+     "    if (is_linux || is_chromeos || use_ozone) {\n"
+     "      sources += [\n"
+     '        "gl_image_native_pixmap.cc",',
+     "    if ((is_linux || is_chromeos || use_ozone) && !is_haiku) {\n"
+     "      sources += [\n"
+     '        "gl_image_native_pixmap.cc",'),
+    # gl_fence_android_native_fence_sync and libsync are the Android fence
+    # path, built on every posix that is not Fuchsia or Mac -- which now
+    # includes Haiku, where libsync wants <linux/types.h> and the fence
+    # extension does not exist. The comment above this block excludes
+    # Fuchsia for exactly this reason.
+    ("ui/gl/BUILD.gn",
+     "    if (is_posix && !is_fuchsia && !is_mac) {",
+     "    if (is_posix && !is_fuchsia && !is_mac && !is_haiku) {"),
     # ...and the provider it falls back to has to be compiled. Same edit the
     # 87 port made (patch 0032).
     ("ui/base/BUILD.gn",

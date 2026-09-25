@@ -27,6 +27,114 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # Every use of ExternalSemaphore in this file is already behind
+    # BUILDFLAG(ENABLE_VULKAN) -- eleven guards -- but the include is not,
+    # and external_semaphore.h opens with <vulkan/vulkan_core.h>. With
+    # Vulkan off, that header is not on the include path.
+    ("components/viz/service/display_embedder/skia_output_surface_impl_on_gpu.cc",
+     '#include "gpu/command_buffer/service/external_semaphore.h"',
+     "#if BUILDFLAG(ENABLE_VULKAN)\n"
+     '#include "gpu/command_buffer/service/external_semaphore.h"\n'
+     "#endif"),
+    # WebVector has an explicit uint32_t size constructor and a template
+    # constructor for anything else, which calls .begin() on its argument.
+    # On 32-bit Haiku size_t is unsigned long and uint32_t is unsigned int --
+    # same width, different type, the int32-is-long inheritance again -- so
+    # WebVector(some_size_t) missed the size constructor, fell to the
+    # template, and tried to iterate an integer. 42 errors. Constraining the
+    # template to non-integral arguments sends integers back where they
+    # belong; on every other platform the two constructors were already
+    # unambiguous, so nothing else changes.
+    ("third_party/blink/public/platform/web_vector.h",
+     "  template <typename C>\n"
+     "  WebVector(const C& other) : data_(other.begin(), other.end()) {}",
+     "  template <typename C,\n"
+     "            typename = std::enable_if_t<!std::is_integral<C>::value>>\n"
+     "  WebVector(const C& other) : data_(other.begin(), other.end()) {}"),
+
+    # The user agent's OS chain ends in #error twice. "Haiku; " is what this
+    # system is, and saying so is the honest answer -- but it is also
+    # untested against real sites, which sniff this string. If x.com serves
+    # something odd, this is the first place to look.
+    ("content/common/user_agent.cc",
+     '#elif BUILDFLAG(IS_FUCHSIA)\n'
+     '  return "";\n'
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif",
+     '#elif BUILDFLAG(IS_FUCHSIA)\n'
+     '  return "";\n'
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     '  return "Haiku; ";\n'
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif"),
+    ("content/common/user_agent.cc",
+     '#elif BUILDFLAG(IS_LINUX)\n'
+     '  return "X11; Linux x86_64";\n'
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif",
+     '#elif BUILDFLAG(IS_LINUX)\n'
+     '  return "X11; Linux x86_64";\n'
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     '  return "Haiku x86";\n'
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif"),
+
+    # Enterprise policy wants a machine name to report. There is nothing to
+    # report to, and Android already answers with an empty string.
+    ("components/policy/core/common/cloud/cloud_policy_util.cc",
+     "#elif BUILDFLAG(IS_CHROMEOS)\n"
+     "  NOTREACHED();\n"
+     "  return std::string();\n"
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif",
+     "#elif BUILDFLAG(IS_CHROMEOS)\n"
+     "  NOTREACHED();\n"
+     "  return std::string();\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  return std::string();\n"
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif"),
+
+    # The fake video capture device names an API per platform. There is no
+    # camera stack here; the fake device still has to say something, and
+    # what it says is never dialled.
+    ("media/capture/video/fake_video_capture_device_factory.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "        VideoCaptureApi::FUCHSIA_CAMERA3;\n"
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "        VideoCaptureApi::FUCHSIA_CAMERA3;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "        VideoCaptureApi::UNKNOWN;\n"
+     "#else\n"
+     "#error Unsupported platform\n"
+     "#endif"),
+
+    # The X11 clipboard MIME names are used by the Ozone clipboard code on
+    # every Ozone platform, not only the ones that declare them.
+    ("ui/base/clipboard/clipboard_constants.h",
+     "// Linux-specific MIME type constants (also used in Fuchsia).\n"
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)",
+     "// Linux-specific MIME type constants (also used in Fuchsia and Haiku).\n"
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)"),
+
+    # openh264 reaches for <sys/sysctl.h> to count CPUs on everything that
+    # is not Windows or Fuchsia. Haiku has sysconf(_SC_NPROCESSORS_ONLN),
+    # which is the branch this file already takes when HW_NCPU_NAME is not
+    # defined.
+    ("third_party/openh264/src/codec/common/src/WelsThreadLib.cpp",
+     "#ifndef __Fuchsia__\n#include <sys/sysctl.h>\n#endif",
+     "#if !defined(__Fuchsia__) && !defined(__HAIKU__)\n"
+     "#include <sys/sysctl.h>\n#endif"),
     # base::ProcessId is pid_t, and on 32-bit Haiku pid_t is __haiku_int32,
     # which is "signed long int" -- BeOS defined int32 that way and Haiku
     # kept it. So ProcessId is long while every mojom that carries one
