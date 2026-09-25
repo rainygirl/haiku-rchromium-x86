@@ -46,18 +46,37 @@ Neither applies directly. The 87 patches are addressed at a
 qtwebengine-chromium layout with `chromium/`, `gn/` and `ninja/` at the
 checkout root, so they do not even path-match a vanilla tarball.
 
-## Where gn gen has got to (2026-09-25)
+## gn gen passes (2026-09-25)
 
-Seven unresolved dependencies, all of them test and crash-reporting targets
-that content_shell does not use:
+`build.ninja` is generated: 4.3 MB, 24,864 build edges. Chromium 108 accepts
+Haiku as a target OS and resolves the whole graph for it.
 
-    //third_party/angle/src/tests   (5)   graphics tests
-    //third_party/breakpad          (4)   crash reporter; the 87 port drops it
-    //third_party/dawn/.../common   (2)   WebGPU
+The eleven unresolved dependencies it started with were all test and
+crash-reporting targets -- angle's tests, breakpad, dawn's common -- reached
+from `//chrome/test` and `//tools/perf`, neither of which is built here.
+`port-target-guards.py` adds Haiku to the OS lists that would otherwise leave
+those targets undefined, and removes the three references to
+`angle_perftests`, whose definition goes through Chromium's `test()` template
+and has no Haiku arm.
 
-They are pulled in by `//chrome/test` and `//tools/perf`, neither of which is
-being built. Everything before that now resolves: platform detection, the
-toolchain, grit, nss, pkg-config against the Haiku sysroot.
+Two mistakes in that last part are worth keeping, because both cost a round
+each:
+
+- **Three references, found one at a time.** chrome/test, the `angle_tests`
+  group, and `chromium_builder_perf` in the root BUILD.gn all name
+  angle_perftests. Each fix looked like it had worked and the same error came
+  back. Grepping for every reference at the start would have found all three
+  in one go.
+- **An "already applied?" check that was always true.** For an edit that
+  *removes* a line, `if new in s: continue` passes before anything is done --
+  the shortened text is a substring of the original. It reported "0 patched"
+  with no warning. The check now asks whether the text being removed is still
+  present.
+
+And one thing that was never a dependency problem at all: gn warned that
+`build_angle_perftests` "was set as a build argument but never appeared in a
+declare_args() block", which meant angle's BUILD.gn was not being read. The
+argument was a guess at a fix and removing it is what let gn gen finish.
 
 ### What had to be got past, in order
 
