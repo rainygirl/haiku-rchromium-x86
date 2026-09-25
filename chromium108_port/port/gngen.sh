@@ -93,4 +93,11 @@ GN=tools/gn/out-arm64/gn
   # (No apostrophes in here -- the whole block is one single-quoted
   # shell argument, and one closed it.)
   use_nss_certs = false
+  # DCHECKs are on by default in any non-official Chromium build, and they
+  # are the reason 619 constexpr evaluations failed: V8 puts DCHECK_EQ inside
+  # constexpr functions such as Context::SizeFor, and a DCHECK that is a real
+  # check is not a constant expression for gcc. Beyond that, this build is
+  # aimed at a 1.33 GHz Atom, where a release build with every DCHECK live is
+  # not a trade worth making.
+  dcheck_always_on = false
 ' 2>&1 | head -30

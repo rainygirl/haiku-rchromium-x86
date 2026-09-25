@@ -20,15 +20,25 @@ ln -sf /usr/bin/node "$NODEDIR/node"
 # them. Replace it with the arm64 build of the same tool; its command line is
 # the part this build depends on and that has not changed.
 ESBUILD=/build/chromium108/third_party/devtools-frontend/src/third_party/esbuild/esbuild
-if [ -e "$ESBUILD" ] && ! "$ESBUILD" --version >/dev/null 2>&1; then
-	npm install --silent --prefix /tmp/esb esbuild@0.16.17 >/dev/null 2>&1
-	ARM64=/tmp/esb/node_modules/@esbuild/linux-arm64/bin/esbuild
-	[ -x "$ARM64" ] || ARM64=/tmp/esb/node_modules/esbuild-linux-arm64/bin/esbuild
-	if [ -x "$ARM64" ]; then
-		cp "$ARM64" "$ESBUILD" && chmod 755 "$ESBUILD"
-		echo "esbuild: replaced with arm64 build"
-	else
-		echo "esbuild: no arm64 build found; devtools targets will fail"
+if [ -e "$ESBUILD" ]; then
+	# The version has to match devtools' own, not merely be recent: esbuild's
+	# JS client refuses a binary whose version differs -- "Host version
+	# 0.14.13 does not match binary version 0.16.17". Read the pin out of
+	# node_modules rather than guessing it.
+	EV=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+	     /build/chromium108/third_party/devtools-frontend/src/node_modules/esbuild/package.json 2>/dev/null)
+	[ -n "$EV" ] || EV=0.14.13
+	HAVE=$("$ESBUILD" --version 2>/dev/null | tr -d ' \n')
+	if [ "$HAVE" != "$EV" ]; then
+		npm install --silent --prefix /tmp/esb "esbuild@$EV" >/dev/null 2>&1
+		ARM64=/tmp/esb/node_modules/esbuild-linux-arm64/bin/esbuild
+		[ -x "$ARM64" ] || ARM64=/tmp/esb/node_modules/@esbuild/linux-arm64/bin/esbuild
+		if [ -x "$ARM64" ]; then
+			cp "$ARM64" "$ESBUILD" && chmod 755 "$ESBUILD"
+			echo "esbuild: $HAVE -> $EV (arm64)"
+		else
+			echo "esbuild: no arm64 build of $EV; devtools targets will fail"
+		fi
 	fi
 fi
 export PATH=/build/xwrappers:$PATH

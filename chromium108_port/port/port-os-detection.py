@@ -87,6 +87,20 @@ edits = [
     # expansion and quotes "EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(...));"
     # verbatim, twenty lines before the real one, and a single-line anchor
     # cannot tell the two apart.
+    # base/export_template.h is the same file as V8's, checked in twice, and
+    # its self-test fails the same way under gcc 13.
+    ("base/export_template.h",
+     'EXPORT_TEMPLATE_TEST(DEFAULT, );\n'
+     'EXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\n'
+     'EXPORT_TEMPLATE_TEST(EXPORT_DLLEXPORT, __declspec(dllexport));\n'
+     'EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));',
+     "#if !defined(__HAIKU__)\n"
+     'EXPORT_TEMPLATE_TEST(DEFAULT, );\n'
+     'EXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\n'
+     'EXPORT_TEMPLATE_TEST(EXPORT_DLLEXPORT, __declspec(dllexport));\n'
+     'EXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));'
+     "\n#endif  // !defined(__HAIKU__)"),
+
     ("v8/src/base/export-template.h",
      'EXPORT_TEMPLATE_TEST(DEFAULT, );\nEXPORT_TEMPLATE_TEST(DEFAULT, __attribute__((visibility("default"))));\nEXPORT_TEMPLATE_TEST(MSVC_HACK, __declspec(dllexport));\nEXPORT_TEMPLATE_TEST(DEFAULT, __declspec(dllimport));',
      "#if !defined(__HAIKU__)\n"

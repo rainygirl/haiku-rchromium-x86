@@ -19,6 +19,17 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # Chromium already knows gcc cannot take ##__VA_ARGS__ in
+    # standards-conforming mode -- the comment in this very block says so,
+    # and the answer is -std=gnu++17 rather than -std=c++17. Haiku was not
+    # in the list of systems that reach it, so it fell through to the
+    # hardcoded -std=c++17 further down and V8's DEFINE_PARAMETERS() macros
+    # produced 702 "expected identifier before ',' token".
+    ("build/config/compiler/BUILD.gn",
+     '  if (is_linux || is_chromeos || is_android || (is_nacl && is_clang) ||\n'
+     '      current_os == "aix") {',
+     '  if (is_linux || is_chromeos || is_android || (is_nacl && is_clang) ||\n'
+     '      is_haiku || current_os == "aix") {'),
     # webrtc's net_helpers wants <ifaddrs.h>, which Haiku has in headers/bsd
     # along with the getifaddrs implementation in libbsd. Same treatment as
     # libevent: the directory goes on this target's include path and no

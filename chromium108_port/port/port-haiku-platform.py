@@ -27,6 +27,64 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # Chromium already has a mode for a POSIX without execinfo -- uclibc and
+    # AIX are in it -- and it covers the whole file, not just the include.
+    # Haiku has no execinfo.h and no backtrace(); it has its own debugger
+    # API, which is a separate piece of work. Until then it takes the same
+    # road uclibc does.
+    ("base/debug/stack_trace_posix.cc",
+     "!defined(__UCLIBC__) && !defined(_AIX)",
+     "!defined(__UCLIBC__) && !defined(_AIX) && !defined(__HAIKU__)",
+     "all"),
+
+    # _PATH_DEVNULL is the only thing logging.cc wants out of <paths.h>, and
+    # Haiku keeps paths.h in headers/bsd, which is deliberately not on the
+    # general include path. One define is a smaller thing to carry than the
+    # whole BSD header directory.
+    ("base/logging.cc",
+     "#include <paths.h>",
+     "#if defined(__HAIKU__)\n"
+     "#define _PATH_DEVNULL \"/dev/null\"\n"
+     "#else\n"
+     "#include <paths.h>\n"
+     "#endif"),
+
+    # AtomicWord is intptr_t and Atomic32 is int32_t. On a 32-bit system
+    # where intptr_t is long -- Haiku, like Apple and OpenBSD -- those are
+    # distinct types of the same width, and the Atomic32 entry points will
+    # not take an AtomicWord*. Chromium keeps a compatibility header for
+    # exactly this and lists the platforms that need it; Haiku is another.
+    ("base/atomicops.h",
+     "#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_OPENBSD)\n"
+     '#include "base/atomicops_internals_atomicword_compat.h"',
+     "#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_OPENBSD) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "base/atomicops_internals_atomicword_compat.h"'),
+
+    # webrtc reaches <endian.h> for htobe64 and friends on any POSIX. Haiku
+    # has an endian.h, but the one on the include path only settles byte
+    # order; the htobe/letoh family lives in the BSD copy. Rather than put
+    # that directory on webrtc's path, answer the same way the file already
+    # answers for Native Client: with the compiler builtins. x86 is little
+    # endian, which is the only case this port has.
+    ("third_party/webrtc/rtc_base/byte_order.h",
+     "#elif defined(WEBRTC_POSIX)\n#include <endian.h>",
+     "#elif defined(__HAIKU__)\n"
+     "\n"
+     "#define htobe16(v) __builtin_bswap16(v)\n"
+     "#define htobe32(v) __builtin_bswap32(v)\n"
+     "#define htobe64(v) __builtin_bswap64(v)\n"
+     "#define be16toh(v) __builtin_bswap16(v)\n"
+     "#define be32toh(v) __builtin_bswap32(v)\n"
+     "#define be64toh(v) __builtin_bswap64(v)\n"
+     "\n"
+     "#define htole16(v) (v)\n"
+     "#define htole32(v) (v)\n"
+     "#define htole64(v) (v)\n"
+     "#define le16toh(v) (v)\n"
+     "#define le32toh(v) (v)\n"
+     "#define le64toh(v) (v)\n"
+     "\n"
+     "#elif defined(WEBRTC_POSIX)\n#include <endian.h>"),
     # perfetto asks the OS for a thread id and, with every PERFETTO_OS_*
     # flag at 0, lands in "Default to pthreads in case no OS is set", where
     # PlatformThreadId is pthread_t. On Haiku that is a pointer, so the
@@ -193,7 +251,9 @@ includes = [
 ]
 
 done = 0
-for rel, old, new in edits:
+for edit in edits:
+    rel, old, new = edit[0], edit[1], edit[2]
+    every = len(edit) > 3 and edit[3] == "all"
     path = "%s/%s" % (root, rel)
     try:
         s = open(path).read()
@@ -209,7 +269,7 @@ for rel, old, new in edits:
     if old not in s:
         print("  PATTERN NOT FOUND: %s" % rel)
         continue
-    open(path, "w").write(s.replace(old, new, 1))
+    open(path, "w").write(s.replace(old, new) if every else s.replace(old, new, 1))
     print("  patched %s" % rel)
     done += 1
 
