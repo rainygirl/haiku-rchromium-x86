@@ -54,7 +54,8 @@ GN=tools/gn/out-arm64/gn
   # have meant repairing code this port does not use. The Haiku platform
   # draws through BView and has no EGL at all.
   ozone_platform = "haiku"
-  ozone_platform_external = true
+  # (108 has no ozone_platform_external; the external platform comes
+  # entirely from ozone_extra_path below.)
   ozone_extra_path = "//haiku_port/ozone_extra.gni"
   use_v8_context_snapshot = false
   # The source tarball has no bundled clang -- that arrives with gclient sync,
@@ -101,6 +102,12 @@ GN=tools/gn/out-arm64/gn
   use_egl = true
   angle_enable_gl = false
   angle_enable_vulkan = false
+  # ...and one more: ui/gl lists the Vulkan loader as a data dependency
+  # whenever angle_shared_libvulkan is set, which is separate from whether
+  # ANGLE has a Vulkan backend. A data dep is still built, so the loader was
+  # compiling and failing on its own "must be modified for this OS" long
+  # after ANGLE stopped asking for it.
+  angle_shared_libvulkan = false
   # Debug info for a 200 MB binary on a machine that will never run a
   # debugger on it, at the cost of every compile and every link. The 87
   # port set all three to 0 as well.

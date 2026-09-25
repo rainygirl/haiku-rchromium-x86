@@ -27,6 +27,32 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # base::ProcessId is pid_t, and on 32-bit Haiku pid_t is __haiku_int32,
+    # which is "signed long int" -- BeOS defined int32 that way and Haiku
+    # kept it. So ProcessId is long while every mojom that carries one
+    # declares int32, and std::map<long, T> is not std::map<int, T> however
+    # identical the two are in width and representation. 40 errors, all of
+    # them a map or an array refusing to serialise.
+    #
+    # ProcessId becomes int32_t here, which is what the wire format has
+    # always said it is. Nothing else changes: it is the same width and the
+    # same signedness as pid_t, so every scalar use still converts, and
+    # ProcessHandle stays pid_t for the calls that take one -- waitpid, kill
+    # and the rest.
+    ("base/process/process_handle.h",
+     "// On POSIX, our ProcessHandle will just be the PID.\n"
+     "typedef pid_t ProcessHandle;\n"
+     "typedef pid_t ProcessId;",
+     "// On POSIX, our ProcessHandle will just be the PID.\n"
+     "typedef pid_t ProcessHandle;\n"
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "// Haiku's pid_t is long (int32 is long on 32-bit, from BeOS), and the\n"
+     "// mojom that carries a process id says int32. Same width, same sign,\n"
+     "// different type -- and std::map cares.\n"
+     "typedef int32_t ProcessId;\n"
+     "#else\n"
+     "typedef pid_t ProcessId;\n"
+     "#endif"),
     # The include block picks its header by OS too, and Haiku was not in it,
     # so the arm below found neither OSExchangeDataProviderFactoryOzone nor
     # OSExchangeDataProviderNonBacked declared.
