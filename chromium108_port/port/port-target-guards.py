@@ -19,6 +19,18 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # ffmpeg's generated configuration is picked by current_os, and there is
+    # no chromium/config/*/haiku -- those directories are the output of
+    # running ffmpeg's configure on each platform, which this port has not
+    # done. ChromeOS and Fuchsia already borrow Linux's, and for the same
+    # reason: same compiler family, same architecture, and the HAVE_* set
+    # that matters to ffmpeg is the POSIX one. Haiku borrows it too rather
+    # than carrying a copied directory nobody can regenerate.
+    ("third_party/ffmpeg/ffmpeg_options.gni",
+     "} else if (is_chromeos || is_fuchsia) {\n"
+     '  os_config = "linux"',
+     "} else if (is_chromeos || is_fuchsia || is_haiku) {\n"
+     '  os_config = "linux"'),
     # The sampling profiler's signal-based stack copier reads linux/futex.h
     # and suspends a thread with a signal. Neither exists here; Haiku joins
     # nacl and apple in not building it.

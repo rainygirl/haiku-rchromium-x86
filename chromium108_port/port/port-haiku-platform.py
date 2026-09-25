@@ -27,6 +27,78 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # The same guard as in base/files/file.h, one file over: the systems
+    # whose plain stat() is already the large-file one. Haiku is another.
+    ("base/files/file_posix.cc",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
+     "    BUILDFLAG(IS_HAIKU) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)"),
+    # Closes the #if opened above the mallinfo() body. Without it the file
+    # ends inside a conditional -- "unterminated #if" -- and every member
+    # definition after this function lands outside its namespace.
+    ("base/trace_event/malloc_dump_provider.cc",
+     "                              total_allocated_size);\n"
+     "  }\n"
+     "}\n"
+     "#endif",
+     "                              total_allocated_size);\n"
+     "  }\n"
+     "#endif  // defined(__HAIKU__)\n"
+     "}\n"
+     "#endif"),
+
+    # ftruncate64, stat64, fstat64 and lstat64 are the 32-bit-off_t systems'
+    # large-file entry points. Haiku's off_t is 64-bit and the plain calls
+    # are the large-file ones, which is the same reason the BSDs, Apple and
+    # Fuchsia are already excluded here.
+    ("base/files/file_posix.cc",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_FUCHSIA)\n"
+     "  static_assert(sizeof(off_t) >= sizeof(int64_t),",
+     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_FUCHSIA) || \\\n"
+     "    BUILDFLAG(IS_HAIKU)\n"
+     "  static_assert(sizeof(off_t) >= sizeof(int64_t),"),
+
+    # SystemMemoryInfoKB is declared only for the systems that can fill it
+    # in, and process_metrics.cc defines its constructors unconditionally.
+    # Haiku can report total and free memory through get_system_info(), so
+    # the struct belongs; the fields it cannot fill stay at their defaults.
+    ("base/process/process_metrics.h",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) ||      \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_AIX) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA)",
+     "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) ||      \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_AIX) || \\\n"
+     "    BUILDFLAG(IS_HAIKU) || BUILDFLAG(IS_FUCHSIA)"),
+
+    # IP_MTU_DISCOVER is Linux's path-MTU control and IPV6_TCLASS its IPv6
+    # DSCP field. The file already has an arm for systems with neither --
+    # macOS, the BSDs, Native Client -- which logs and returns -1.
+    ("third_party/webrtc/rtc_base/physical_socket_server.cc",
+     "#elif defined(WEBRTC_MAC) || defined(BSD) || defined(__native_client__)\n"
+     "      RTC_LOG(LS_WARNING) << \"Socket::OPT_DONTFRAGMENT not supported.\";",
+     "#elif defined(WEBRTC_MAC) || defined(BSD) || defined(__native_client__) || \\\n"
+     "    defined(__HAIKU__)\n"
+     "      RTC_LOG(LS_WARNING) << \"Socket::OPT_DONTFRAGMENT not supported.\";"),
+    ("third_party/webrtc/rtc_base/physical_socket_server.cc",
+     "    case OPT_DSCP:\n"
+     "#if defined(WEBRTC_POSIX)\n"
+     "      if (family_ == AF_INET6) {\n"
+     "        *slevel = IPPROTO_IPV6;\n"
+     "        *sopt = IPV6_TCLASS;\n"
+     "      } else {",
+     "    case OPT_DSCP:\n"
+     "#if defined(WEBRTC_POSIX)\n"
+     "      if (family_ == AF_INET6) {\n"
+     "#if defined(__HAIKU__)\n"
+     "        // No IPV6_TCLASS here, so there is no IPv6 DSCP to set.\n"
+     "        return -1;\n"
+     "#else\n"
+     "        *slevel = IPPROTO_IPV6;\n"
+     "        *sopt = IPV6_TCLASS;\n"
+     "#endif\n"
+     "      } else {"),
     # perfetto's PosixSharedMemory is declared only for the systems it was
     # written for, and system_tracing_backend.cc uses it on every non-Windows
     # build. Haiku goes in the declaration's list: the implementation asks

@@ -73,6 +73,22 @@ GN=tools/gn/out-arm64/gn
   use_lld = false
   treat_warnings_as_errors = false
   v8_use_external_startup_data = false
+  # SwiftShader is a software Vulkan/GL implementation, and pulling it in is
+  # what asks EGL and Vulkan for a Haiku platform type they do not have. The
+  # 87 port turned it off for the same reason; this machine has no GPU
+  # acceleration worth the code either way.
+  enable_swiftshader = false
+  # Debug info for a 200 MB binary on a machine that will never run a
+  # debugger on it, at the cost of every compile and every link. The 87
+  # port set all three to 0 as well.
+  symbol_level = 0
+  blink_symbol_level = 0
+  v8_symbol_level = 0
+  # From the 87 port args, which are the closest thing to a known-good
+  # configuration this port has.
+  enable_web_speech = false
+  proprietary_codecs = true
+  ffmpeg_branding = "Chrome"
   # Torque is built for the host and its output is not host-independent:
   # the field types in torque-generated/ are chosen by V8_EXTERNAL_CODE_SPACE
   # as compiled into the torque binary. On an arm64 host that is on, so it
