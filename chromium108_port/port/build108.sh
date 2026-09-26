@@ -4,7 +4,10 @@
 # point at this stage is the shape of the work, not one error.
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null 2>&1
-apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-dev nodejs npm gperf >/dev/null 2>&1
+# gcc-i686-linux-gnu builds mksnapshot for the target word size; see
+# v8_snapshot_toolchain in gngen.sh. It runs under qemu-i386, which
+# Docker registers through binfmt_misc on this machine.
+apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-dev nodejs npm gperf gcc-i686-linux-gnu g++-i686-linux-gnu >/dev/null 2>&1
 # devtools-frontend runs its build steps through third_party/node/node.py,
 # which looks for a bundled node under third_party/node/linux/node-linux-x64.
 # The source tarball does not carry it -- that arrives with gclient sync --

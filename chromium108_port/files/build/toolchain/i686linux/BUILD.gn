@@ -1,0 +1,66 @@
+# A 32-bit Linux toolchain, for mksnapshot and nothing else.
+#
+# V8's snapshot is a serialised heap full of tagged pointers, so mksnapshot
+# has to be a process of the target's word size -- and it runs the JavaScript
+# it is snapshotting, so it also needs to be able to execute the code it
+# generates. For every target V8 can simulate, Chromium builds mksnapshot for
+# the host and turns on the simulator. ia32 is the one architecture with no
+# simulator, so a 32-bit x86 snapshot needs a real 32-bit x86 process.
+#
+# The host here is arm64, and there is no i386 multilib for it. What there is:
+#
+#   - Debian's gcc-i686-linux-gnu, a cross compiler for i686 Linux
+#   - qemu-i386 through binfmt_misc, which Docker registers on this machine
+#     (verified: a statically linked i686 binary runs and its exit code
+#     arrives intact)
+#
+# So mksnapshot is built for i686 Linux, statically, and runs under qemu. The
+# OS does not matter -- a snapshot is architecture-specific and OS-agnostic,
+# which is how Chromium builds Android's snapshot with a Linux mksnapshot.
+#
+# Static because the i386 runtime loader is not installed and cannot be: this
+# is an arm64 system, and the cross package puts its libc under
+# /usr/i686-linux-gnu where /lib/ld-linux.so.2 does not point.
+#
+# Naming: the target is "x86" rather than "i686" so
+# v8_snapshot_toolchain = "//build/toolchain/i686linux:x86" reads the way the
+# other snapshot toolchains in snapshot_toolchain.gni do.
+
+import("//build/toolchain/gcc_toolchain.gni")
+
+declare_args() {
+  # Absolute path to the i686 cross tools' bin directory, or "" for PATH.
+  # ninja runs commands through /bin/sh without the build script's PATH, the
+  # same reason haiku_cross_bin exists.
+  i686linux_cross_bin = ""
+}
+
+_p = ""
+if (i686linux_cross_bin != "") {
+  _p = i686linux_cross_bin + "/"
+}
+
+gcc_toolchain("x86") {
+  cc = _p + "i686-linux-gnu-gcc"
+  cxx = _p + "i686-linux-gnu-g++"
+
+  readelf = _p + "i686-linux-gnu-readelf"
+  nm = _p + "i686-linux-gnu-nm"
+  ar = _p + "i686-linux-gnu-ar"
+  ld = cxx
+
+  extra_ldflags = "-static"
+
+  toolchain_args = {
+    current_cpu = "x86"
+    current_os = "linux"
+    is_clang = false
+
+    # This toolchain exists to run on the build machine. Nothing it produces
+    # ships, so it does not want the target's sysroot, its allocator or its
+    # feature set -- only a working V8 for ia32.
+    use_sysroot = false
+    use_allocator_shim = false
+    is_component_build = false
+  }
+}

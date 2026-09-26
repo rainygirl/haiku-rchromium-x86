@@ -71,13 +71,22 @@ GN=tools/gn/out-arm64/gn
   # command-line option" -- 2,882 of them, the largest single group of
   # failures in the first real compile.
   host_toolchain = "//build/toolchain/linux:arm64"
-  # V8 builds mksnapshot for the target word size and picks clang_x86 for a
-  # 32-bit target. Pointing it at the gcc x86 toolchain traded one problem for
-  # another: that is a *Linux* x86 toolchain, and this container has no 32-bit
-  # glibc, so 592 compiles died on <bits/libc-header-start.h>. mksnapshot runs
-  # on the host, so build it for the host word size; V8 can emit a 32-bit
-  # snapshot from a 64-bit mksnapshot.
-  v8_snapshot_toolchain = "//build/toolchain/linux:arm64"
+  # The snapshot. An arm64 mksnapshot was tried here first, on the theory
+  # that it runs on the host so it should be built for the host. It builds
+  # and it runs and it writes a blob, and then the renderer dies in
+  # deserializer.cc on a bytecode it does not recognise: a V8 snapshot is a
+  # serialised heap of tagged pointers, so mksnapshot must be a process of
+  # the TARGET word size. For every architecture V8 can simulate, Chromium
+  # builds mksnapshot for the host and turns the simulator on. ia32 is the
+  # one with no simulator, so this needs a real 32-bit x86 process.
+  #
+  # //build/toolchain/i686linux:x86 is that: the Debian i686 Linux
+  # cross compiler, statically linked, run through qemu-i386. Compiling stays
+  # native arm64 and only mksnapshot itself is emulated. The OS does not
+  # matter -- a snapshot is architecture-specific and OS-agnostic, which is
+  # how Chromium builds Android snapshots with a Linux mksnapshot.
+  v8_snapshot_toolchain = "//build/toolchain/i686linux:x86"
+  i686linux_cross_bin = "/usr/bin"
   use_gold = false
   use_lld = false
   treat_warnings_as_errors = false
