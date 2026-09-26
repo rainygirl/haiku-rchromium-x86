@@ -27,6 +27,265 @@ void* GetStackTop() {
 '''
 
 edits = [
+    # The include that declares the built-in verifier, under the same list
+    # the call site uses. The sources are already compiled -- only the
+    # declaration was out of reach.
+    ("services/cert_verifier/cert_verifier_creation.cc",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     '#include "net/cert/cert_verify_proc_builtin.h"',
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "net/cert/cert_verify_proc_builtin.h"'),
+
+    # NativeEventObserver's header: the base class it derives from and the
+    # two overrides are under the same Linux guard as the implementation.
+    # Five guards in the pair of files, and I had opened two of them.
+    ("content/browser/scheduler/responsiveness/native_event_observer.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)",
+     "all"),
+    ("content/browser/scheduler/responsiveness/native_event_observer.h",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)",
+     "all"),
+    # The rest of NativeEventObserver's aura implementation: the include got
+    # Haiku, the body did not.
+    ("content/browser/scheduler/responsiveness/native_event_observer.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "void NativeEventObserver::RegisterObserver() {",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "void NativeEventObserver::RegisterObserver() {"),
+    ("content/browser/scheduler/responsiveness/native_event_observer.cc",
+     "#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)",
+     "#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || IS_HAIKU"),
+
+    # Native pixmaps, the last two references. Both sites are gated on
+    # USE_OZONE, which Haiku satisfies without having a dmabuf to back a
+    # pixmap with -- the implementations were excluded for that reason
+    # several commits ago and only the call sites were left.
+    ("gpu/ipc/common/gpu_memory_buffer_support.cc",
+     "#if defined(USE_OZONE)\n"
+     "    case gfx::NATIVE_PIXMAP:\n"
+     "      return GpuMemoryBufferImplNativePixmap::CreateFromHandle(",
+     "#if defined(USE_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
+     "    case gfx::NATIVE_PIXMAP:\n"
+     "      return GpuMemoryBufferImplNativePixmap::CreateFromHandle("),
+    ("gpu/command_buffer/service/shared_image/shared_image_factory.cc",
+     "#elif defined(USE_OZONE)\n"
+     "  // For all Ozone platforms - Desktop Linux, ChromeOS, Fuchsia, CastOS.\n"
+     "  if (ui::OzonePlatform::GetInstance()",
+     "#elif defined(USE_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
+     "  // For all Ozone platforms - Desktop Linux, ChromeOS, Fuchsia, CastOS.\n"
+     "  if (ui::OzonePlatform::GetInstance()"),
+
+    # The certificate verifier. Haiku has no system trust store to call, so
+    # it takes the built-in verifier -- the same one Linux and Fuchsia take,
+    # reading the CA bundle Chromium ships.
+    ("services/cert_verifier/cert_verifier_creation.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX)\n"
+     "    verify_proc = net::CreateCertVerifyProcBuiltin(",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_HAIKU)\n"
+     "    verify_proc = net::CreateCertVerifyProcBuiltin("),
+
+    # Geolocation. There is no system location service on Haiku, and the
+    # arbitrator already has an arm that says so by returning nullptr.
+    ("services/device/geolocation/location_arbitrator.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)\n"
+     "  return nullptr;",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "  return nullptr;"),
+
+    # fontconfig asks freetype for BDF properties when a face has exactly
+    # one fixed size. HAVE_FT_GET_BDF_PROPERTY comes from its generated
+    # config, and Chromium's bundled freetype is built without the BDF
+    # module -- so the call is compiled and the symbol is not there. This
+    # affects bitmap fonts only.
+    ("third_party/fontconfig/include/config.h",
+     "#define HAVE_FT_GET_BDF_PROPERTY 1",
+     "#if !defined(__HAIKU__)\n#define HAVE_FT_GET_BDF_PROPERTY 1\n#endif"),
+    # The definition of GetFamilyNameForCharacter, in the shared skia file
+    # rather than the Linux one. Its guard is the third on this function,
+    # after the two in font_cache.h.
+    ("third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc",
+     "#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "// This function is called on android",
+     "#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "// This function is called on android"),
+
+    # NativeEventObserver watches the UI message pump to measure
+    # responsiveness. Its aura implementation is under a Linux guard and
+    # needs aura::Env; Haiku uses aura too, so the same code applies.
+    ("content/browser/scheduler/responsiveness/native_event_observer.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     '#include "ui/aura/env.h"',
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "ui/aura/env.h"'),
+    # The other member font_cache_linux.cc defines, under a guard of its
+    # own a hundred lines further down the same header.
+    ("third_party/blink/renderer/platform/fonts/font_cache.h",
+     "#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  static AtomicString GetFamilyNameForCharacter(SkFontMgr*,",
+     "#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  static AtomicString GetFamilyNameForCharacter(SkFontMgr*,"),
+    # font_cache_linux.cc defines three members that font_cache.h declares
+    # only for Linux and ChromeOS. Taking the file means taking the
+    # declarations -- they are the fallback-font lookup that goes through
+    # the font service, which reaches the same fontconfig this port builds.
+    ("third_party/blink/renderer/platform/fonts/font_cache.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  static bool GetFontForCharacter(UChar32,",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  static bool GetFontForCharacter(UChar32,"),
+    # ...and the include that declares the type in that signature. Opening
+    # the declaration without it was 1054 errors, every one of them
+    # "gfx::FallbackFontData has not been declared" reaching every file
+    # that includes font_cache.h.
+    ("third_party/blink/renderer/platform/fonts/font_cache.h",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     '#include "ui/gfx/font_fallback_linux.h"',
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "ui/gfx/font_fallback_linux.h"'),
+    # gl_fence.cc reaches for the Android native fence sync on any POSIX
+    # with EGL, and turning use_egl on put Haiku there. The source file was
+    # already excluded from ui/gl's sources (it wants linux/types.h through
+    # libsync), so the reference had nothing to resolve to. Excluding Haiku
+    # from the define sends GLFence down the plain EGL path.
+    ("ui/gl/gl_fence.cc",
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE)\n"
+     "#define USE_GL_FENCE_ANDROID_NATIVE_FENCE_SYNC\n"
+     '#include "ui/gl/gl_fence_android_native_fence_sync.h"',
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_HAIKU)\n"
+     "#define USE_GL_FENCE_ANDROID_NATIVE_FENCE_SYNC\n"
+     '#include "ui/gl/gl_fence_android_native_fence_sync.h"'),
+    # The X11 clipboard MIME names: the header declaration got Haiku
+    # earlier, the definitions in the .cc did not. The Ozone clipboard code
+    # uses them on every Ozone platform.
+    ("ui/base/clipboard/clipboard_constants.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)\n"
+     'const char kMimeTypeLinuxUtf8String[] = "UTF8_STRING";',
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     'const char kMimeTypeLinuxUtf8String[] = "UTF8_STRING";'),
+    # The header's declaration got Haiku a few commits ago; the definitions
+    # are behind the same list in the .cc and did not.
+    ("third_party/perfetto/src/tracing/ipc/posix_shared_memory.cc",
+     "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)",
+     "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || defined(__HAIKU__)"),
+
+    # minizip calls fopen64/ftello64/fseeko64 and each platform without them
+    # aliases them to the plain calls. Haiku's off_t is 64-bit, so the plain
+    # ones already are the large-file calls -- the same reason FreeBSD is
+    # listed here. This is the 87 port's patch 0063.
+    ("third_party/zlib/contrib/minizip/ioapi.h",
+     "#ifdef __FreeBSD__\n"
+     "#define fopen64 fopen\n"
+     "#define ftello64 ftello\n"
+     "#define fseeko64 fseeko\n"
+     "#endif",
+     "#if defined(__FreeBSD__) || defined(__HAIKU__)\n"
+     "#define fopen64 fopen\n"
+     "#define ftello64 ftello\n"
+     "#define fseeko64 fseeko\n"
+     "#endif"),
+    # OutputToStreamWithPrefix is a const member; the Haiku arm added a few
+    # commits ago left the const off.
+    ("base/debug/stack_trace_posix.cc",
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
+     "                                          const char* prefix_string) {\n"
+     "  // No backtrace_symbols here",
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
+     "                                          const char* prefix_string) const {\n"
+     "  // No backtrace_symbols here"),
+    # bits::AlignUp wants both arguments the same type, and ElfW(Word) is
+    # uint32 -- which on Haiku is "unsigned long", not "unsigned int". So
+    # AlignUp(n_namesz, 4u) has nothing to deduce. int32-is-long again, the
+    # fifth time this session. Naming the type settles it without changing
+    # what the code does.
+    ("base/debug/elf_reader.cc",
+     "      size_t section_size = bits::AlignUp(current_note->n_namesz, 4u) +\n"
+     "                            bits::AlignUp(current_note->n_descsz, 4u) +",
+     "      size_t section_size =\n"
+     "          bits::AlignUp<size_t>(current_note->n_namesz, 4u) +\n"
+     "          bits::AlignUp<size_t>(current_note->n_descsz, 4u) +"),
+    ("base/debug/elf_reader.cc",
+     "        bits::AlignUp(current_note->n_namesz, 4u);",
+     "        bits::AlignUp<size_t>(current_note->n_namesz, 4u);"),
+
+    # PlatformThreadId is pid_t, which is long here, and StringToInt takes an
+    # int*. Same shape as base::ProcessId a few commits back, and the same
+    # answer: the wire and the parser both mean int32.
+    ("base/threading/platform_thread.h",
+     "typedef pid_t PlatformThreadId;",
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "// pid_t is long on 32-bit Haiku (int32 is long, from BeOS), and a thread\n"
+     "// id is parsed with StringToInt and put on the wire as int32.\n"
+     "typedef int32_t PlatformThreadId;\n"
+     "#else\n"
+     "typedef pid_t PlatformThreadId;\n"
+     "#endif"),
+    # FILE_EXE on Haiku. There is no /proc/self/exe and none of the sysctl or
+    # getexecname routes the BSD arms take. The kernel does track every image
+    # loaded into the team and exactly one of them is the application itself,
+    # which is what B_APP_IMAGE marks; its name is the absolute path the
+    # loader resolved. This is the 87 port's answer (patch 0078) moved into
+    # the shared file, since 108 has no base_paths_haiku.cc to put it in.
+    ("base/base_paths_posix.cc",
+     "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "      FilePath bin_dir;\n"
+     "      if (!ReadSymbolicLink(FilePath(kProcSelfExe), &bin_dir)) {",
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "      image_info info;\n"
+     "      int32 cookie = 0;\n"
+     "      while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {\n"
+     "        if (info.type == B_APP_IMAGE) {\n"
+     "          *result = FilePath(info.name);\n"
+     "          return true;\n"
+     "        }\n"
+     "      }\n"
+     "      NOTREACHED() << \"No B_APP_IMAGE in this team.\";\n"
+     "      return false;\n"
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "      FilePath bin_dir;\n"
+     "      if (!ReadSymbolicLink(FilePath(kProcSelfExe), &bin_dir)) {"),
+    ("base/base_paths_posix.cc",
+     '#include "base/base_paths.h"',
+     '#include "base/base_paths.h"\n'
+     "\n"
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "#include <image.h>\n"
+     "#endif"),
+
+    # StackTrace::OutputToStreamWithPrefix lives inside the same no-execinfo
+    # guard as the rest of the symbolising code, so excluding Haiku from that
+    # guard took the definition with it -- my own doing, a few commits back.
+    # Haiku gets a version that prints the addresses and says why there are
+    # no names.
+    ("base/debug/stack_trace_posix.cc",
+     "#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(__HAIKU__)\n"
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,",
+     "#if defined(__HAIKU__)\n"
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
+     "                                          const char* prefix_string) const {\n"
+     "  // No backtrace_symbols here: Haiku keeps its symbol lookup in the\n"
+     "  // debug_ API rather than in execinfo, which is separate work. The\n"
+     "  // addresses are still worth printing -- they resolve by hand.\n"
+     "  for (size_t i = 0; i < count_; ++i) {\n"
+     "    if (prefix_string)\n"
+     "      *os << prefix_string;\n"
+     "    *os << \"\\t\" << trace_[i] << \"\\n\";\n"
+     "  }\n"
+     "}\n"
+     "#else\n"
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,"),
     # An in-product-help feature constant, declared and defined for six
     # platforms and used unconditionally by the autofill suggestion
     # generator. Haiku is a seventh; the alternative is guarding the use

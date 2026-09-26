@@ -8,6 +8,23 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # ffmpeg's x86 shift helpers pass (uint8_t)(-s) as an "ic" operand,
+    # and when s is a known constant gcc folds it and prints the signed
+    # value -- shrl with a negative immediate. The assembler validates a
+    # shift's immediate range and rejects it, which is where 24 ffmpeg
+    # files died with "operand type mismatch".
+    #
+    # -16 and 240 are the same eight bits, and shrl/sarl mask the count
+    # to five bits anyway -- the comment above these two functions says
+    # as much ("avoid +32 for shift optimization"). Masking makes that
+    # explicit, keeps the value in range for the assembler, and changes
+    # nothing the instruction would have done.
+    ("third_party/ffmpeg/libavcodec/x86/mathops.h",
+     '    __asm__ ("sarl %1, %0\\n\\t"\n         : "+r" (a)\n         : "ic" ((uint8_t)(-s))\n    );',
+     '    __asm__ ("sarl %1, %0\\n\\t"\n         : "+r" (a)\n         : "ic" ((uint8_t)(-s) & 0x1f)\n    );'),
+    ("third_party/ffmpeg/libavcodec/x86/mathops.h",
+     '    __asm__ ("shrl %1, %0\\n\\t"\n         : "+r" (a)\n         : "ic" ((uint8_t)(-s))\n    );',
+     '    __asm__ ("shrl %1, %0\\n\\t"\n         : "+r" (a)\n         : "ic" ((uint8_t)(-s) & 0x1f)\n    );'),
     # This file forward-declares WebContentsViewDelegate and returns a null
     # unique_ptr of it. Destroying that unique_ptr -- even a temporary that
     # never owned anything -- instantiates default_delete, which needs the

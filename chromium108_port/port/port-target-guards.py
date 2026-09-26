@@ -19,6 +19,338 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # gpu_info_collector_fuchsia.cc calls angle::GetSystemInfo, so the dep
+    # that provides it has to come with it.
+    ("gpu/config/BUILD.gn",
+     "  if (is_linux || is_chromeos || is_mac || is_fuchsia) {\n"
+     '    deps += [ "//third_party/angle:angle_gpu_info_util" ]',
+     "  if (is_linux || is_chromeos || is_mac || is_fuchsia || is_haiku) {\n"
+     '    deps += [ "//third_party/angle:angle_gpu_info_util" ]'),
+
+    # The Ozone shared-image path. These are dmabuf-backed images, which
+    # Haiku has none of -- the sources were excluded earlier for that
+    # reason, but the factory is still constructed by name. Excluding it
+    # here too, where the block is gated on use_ozone rather than on having
+    # dmabuf.
+    ("gpu/command_buffer/service/BUILD.gn",
+     "    if (use_ozone) {\n"
+     "      sources += [\n"
+     '        "shared_image/gl_ozone_image_representation.cc",',
+     "    if (use_ozone && !is_haiku) {\n"
+     "      sources += [\n"
+     '        "shared_image/gl_ozone_image_representation.cc",'),
+
+    # The image transport surface. Haiku draws through BView and never asks
+    # for a native GL surface; the Linux file wants a GLX or EGL one.
+    ("gpu/ipc/service/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "image_transport_surface_linux.cc" ]',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     '    sources += [ "image_transport_surface_linux.cc" ]'),
+    # The fontconfig include path for ui/gfx. font_fallback_linux.cc and the
+    # two files beside it are on Haiku's list now, and all three open with
+    # <fontconfig/fontconfig.h>.
+    ("ui/gfx/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    deps += [ "//third_party/fontconfig" ]',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     '    deps += [ "//third_party/fontconfig" ]'),
+    # ...and the file that defines gfx::FallbackFontData. It goes through
+    # fontconfig, which this port builds.
+    ("ui/gfx/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "font_fallback_linux.cc",\n'
+     '      "font_fallback_linux.h",',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     "    sources += [\n"
+     '      "font_fallback_linux.cc",\n'
+     '      "font_fallback_linux.h",'),
+    # blink's font cache and its theme. font_cache_linux.cc goes through the
+    # font service for fallback, which reaches the same fontconfig this port
+    # now builds; layout_theme_linux.cc is colours and metrics with nothing
+    # Linux about it.
+    ("third_party/blink/renderer/platform/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "fonts/linux/font_cache_linux.cc",',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     "    sources += [\n"
+     '      "fonts/linux/font_cache_linux.cc",'),
+    ("third_party/blink/renderer/core/layout/build.gni",
+     "if (is_linux || is_chromeos) {\n"
+     "  blink_core_sources_layout += [\n"
+     '    "layout_theme_linux.cc",',
+     "if (is_linux || is_chromeos || is_haiku) {\n"
+     "  blink_core_sources_layout += [\n"
+     '    "layout_theme_linux.cc",'),
+
+    # Memory instrumentation reads /proc/<pid>/smaps on Linux. Haiku has no
+    # /proc. The Fuchsia file looked like the do-nothing implementation and
+    # is not -- it includes <lib/zx/job.h> -- which is the second time a
+    # *_fuchsia.cc has fooled me this session, so Haiku gets its own.
+    ("services/resource_coordinator/public/cpp/memory_instrumentation/BUILD.gn",
+     "  if (is_fuchsia) {\n"
+     '    sources += [ "os_metrics_fuchsia.cc" ]',
+     "  if (is_haiku) {\n"
+     '    sources += [ "os_metrics_haiku.cc" ]\n'
+     "  }\n"
+     "\n"
+     "  if (is_fuchsia) {\n"
+     '    sources += [ "os_metrics_fuchsia.cc" ]'),
+
+    # GPU info collection. The Fuchsia collector reports a software device,
+    # which is what this port has.
+    ("gpu/config/BUILD.gn",
+     "  if (is_fuchsia) {\n"
+     '    sources += [ "gpu_info_collector_fuchsia.cc" ]',
+     "  if (is_fuchsia || is_haiku) {\n"
+     '    sources += [ "gpu_info_collector_fuchsia.cc" ]'),
+    # animation_linux.cc asks ui::LinuxUi whether animations are wanted, so
+    # taking that file means taking the dep too. LinuxUi is the toolkit
+    # abstraction, not anything kernel-specific, and its own BUILD.gn
+    # already asserts is_linux || is_haiku.
+    ("ui/gfx/animation/BUILD.gn",
+     "  if (is_linux) {\n"
+     '    deps += [ "//ui/linux:linux_ui" ]',
+     "  if (is_linux || is_haiku) {\n"
+     '    deps += [ "//ui/linux:linux_ui" ]'),
+
+    # The drag-and-drop provider the factory falls back to. Its guard names
+    # the platforms rather than the condition, which is "aura without a
+    # platform-specific provider" -- Haiku.
+    ("ui/base/BUILD.gn",
+     "  if (is_chromeos_ash || (use_aura && (is_linux || is_chromeos_lacros)) ||\n"
+     "      is_fuchsia) {",
+     "  if (is_chromeos_ash || (use_aura && (is_linux || is_chromeos_lacros)) ||\n"
+     "      is_fuchsia || is_haiku) {"),
+    # Launching child processes. The Linux file is half zygote and namespace
+    # sandbox; Haiku has neither, so it gets its own copy with those taken
+    # out and every launch a plain fork-and-exec -- the path the Linux file
+    # already falls back to under --no-zygote.
+    ("content/browser/BUILD.gn",
+     '      "child_process_launcher_helper_linux.cc",',
+     '      "child_process_launcher_helper_linux.cc",'),
+    ("content/browser/BUILD.gn",
+     "  if (is_linux) {\n"
+     '    sources += [ "speech/tts_linux.cc" ]',
+     "  if (is_haiku) {\n"
+     "    sources += [\n"
+     '      "child_process_launcher_helper_haiku.cc",\n'
+     "      # Text to speech: the Fuchsia file is the do-nothing\n"
+     "      # implementation, which is what Haiku can offer today.\n"
+     '      "speech/tts_fuchsia.cc",\n'
+     "    ]\n"
+     "  }\n"
+     "\n"
+     "  if (is_linux) {\n"
+     '    sources += [ "speech/tts_linux.cc" ]'),
+
+    # The renderer's platform hooks. The Fuchsia file is three empty
+    # functions and an EnableSandbox that returns true, which is the honest
+    # shape here: there is no sandbox on this port.
+    ("content/renderer/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "renderer_main_platform_delegate_linux.cc" ]',
+     "  if (is_haiku) {\n"
+     '    sources += [ "renderer_main_platform_delegate_fuchsia.cc" ]\n'
+     "  }\n"
+     "\n"
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "renderer_main_platform_delegate_linux.cc" ]'),
+
+    # Time zone changes. The Fuchsia monitor looked like the do-nothing
+    # implementation but pulls in Fuchsia's own headers, so Haiku gets its
+    # own -- which really does nothing.
+    ("services/device/time_zone_monitor/BUILD.gn",
+     "  if (is_fuchsia) {\n"
+     '    sources += [ "time_zone_monitor_fuchsia.cc" ]',
+     "  if (is_haiku) {\n"
+     '    sources += [ "time_zone_monitor_haiku.cc" ]\n'
+     "  }\n"
+     "\n"
+     "  if (is_fuchsia) {\n"
+     '    sources += [ "time_zone_monitor_fuchsia.cc" ]'),
+    # gfx::Animation asks the desktop whether animations are wanted.
+    # animation_linux.cc reads a GTK setting and returns false without one,
+    # which is the right answer here -- Haiku's equivalent lives in
+    # app_server and nobody has asked it.
+    ("ui/gfx/animation/BUILD.gn",
+     "  if (is_linux) {\n"
+     '    sources += [ "animation_linux.cc" ]',
+     "  if (is_linux || is_haiku) {\n"
+     '    sources += [ "animation_linux.cc" ]'),
+    # Idle detection. idle_linux.cc asks the screensaver over D-Bus and falls
+    # back to "not idle" without it; use_dbus is false here, so that is the
+    # path Haiku takes. Honest for now: Haiku has its own idle notion in
+    # app_server that nobody has wired up.
+    ("ui/base/idle/BUILD.gn",
+     "  if (is_linux) {\n"
+     '    sources += [ "idle_linux.cc" ]\n'
+     '    deps += [ "//ui/display" ]',
+     "  if (is_linux || is_haiku) {\n"
+     '    sources += [ "idle_linux.cc" ]\n'
+     '    deps += [ "//ui/display" ]'),
+
+    # The resource bundle's GetNativeImageNamed. The aura/linux one just
+    # wraps the bitmap; there is nothing Linux about it.
+    ("ui/base/BUILD.gn",
+     "  if (use_aura && (is_linux || is_chromeos)) {\n"
+     '    sources += [ "resource/resource_bundle_auralinux.cc" ]',
+     "  if (use_aura && (is_linux || is_chromeos || is_haiku)) {\n"
+     '    sources += [ "resource/resource_bundle_auralinux.cc" ]'),
+
+    # The file-open dialog. Chromium ships a stub for platforms without one,
+    # which is exactly where this port is: a Haiku dialog would be a BFilePanel
+    # and that is separate work.
+    ("ui/shell_dialogs/BUILD.gn",
+     "  if (is_chromeos || is_castos || is_cast_android) {\n"
+     '    sources += [ "shell_dialog_stub.cc" ]',
+     "  if (is_chromeos || is_castos || is_cast_android || is_haiku) {\n"
+     '    sources += [ "shell_dialog_stub.cc" ]'),
+    # base/nix reaches into xdg_user_dirs, which Linux pulls in through its
+    # own deps block. The is_haiku sources block sits above the point where
+    # deps exists, so the dependency goes after the whole Linux if/else --
+    # splitting that if/else was how the else ended up attached to the wrong
+    # condition the first time.
+    ("base/BUILD.gn",
+     "  } else {\n"
+     "    if (!is_android) {\n"
+     "      sources -= [\n"
+     '        "linux_util.cc",\n'
+     '        "linux_util.h",\n'
+     "      ]\n"
+     "    }\n"
+     "  }",
+     "  } else {\n"
+     "    if (!is_android) {\n"
+     "      sources -= [\n"
+     '        "linux_util.cc",\n'
+     '        "linux_util.h",\n'
+     "      ]\n"
+     "    }\n"
+     "  }\n"
+     "\n"
+     "  if (is_haiku) {\n"
+     "    deps += [\n"
+     '      "//base/third_party/xdg_mime",\n'
+     '      "//base/third_party/xdg_user_dirs",\n'
+     "    ]\n"
+     "  }"),
+    # net's MIME type lookup goes through the XDG shared-mime database on
+    # Linux, and Haiku now builds base/nix for the same reason. The address
+    # tracker and network_interfaces_linux beside it read netlink, which
+    # Haiku does not have, so only the one file comes across.
+    ("net/BUILD.gn",
+     "  if (is_linux || is_chromeos || is_android) {\n"
+     "    sources += [\n"
+     '      "base/address_tracker_linux.cc",',
+     "  if (is_haiku) {\n"
+     '    sources += [ "base/platform_mime_util_linux.cc" ]\n'
+     "  }\n"
+     "\n"
+     "  if (is_linux || is_chromeos || is_android) {\n"
+     "    sources += [\n"
+     '      "base/address_tracker_linux.cc",'),
+
+    # TestRootCerts has one file per trust store. Haiku has no NSS and no
+    # system store to consult, so it takes the same empty implementation
+    # Fuchsia does -- the one that goes with the built-in verifier.
+    ("net/BUILD.gn",
+     "  if (is_haiku) {\n"
+     '    sources += [ "base/platform_mime_util_linux.cc" ]\n'
+     "  }\n",
+     "  if (is_haiku) {\n"
+     "    sources += [\n"
+     '      "base/platform_mime_util_linux.cc",\n'
+     '      "cert/test_root_certs_builtin.cc",\n'
+     "    ]\n"
+     "  }\n"),
+
+    # skia's default font manager. Haiku builds the same bundled fontconfig
+    # Linux does, so the same file answers.
+    ("skia/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "ext/fontmgr_default_linux.cc" ]',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     '    sources += [ "ext/fontmgr_default_linux.cc" ]'),
+
+    # media's audio manager. Haiku has its own media_kit and no ALSA or
+    # PulseAudio; audio_manager_linux.cc with both switched off compiles to
+    # a manager that reports no devices, which is what this port can honestly
+    # offer until someone wires up BSoundPlayer.
+    ("media/audio/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     '    sources += [ "linux/audio_manager_linux.cc" ]',
+     "  if (is_linux || is_chromeos || is_haiku) {\n"
+     '    sources += [ "linux/audio_manager_linux.cc" ]'),
+
+    # V8's OS layer: platform-posix.cc carries everything portable and each
+    # system supplies the rest. Haiku gets its own rather than borrowing
+    # platform-linux.cc, which reads /proc/self/maps and pokes a perf file.
+    ("v8/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "src/base/debug/stack_trace_posix.cc",\n'
+     '      "src/base/platform/platform-linux.cc",',
+     "  if (is_haiku) {\n"
+     "    sources += [\n"
+     '      "src/base/debug/stack_trace_posix.cc",\n'
+     '      "src/base/platform/platform-haiku.cc",\n'
+     "    ]\n"
+     "  }\n"
+     "\n"
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "src/base/debug/stack_trace_posix.cc",\n'
+     '      "src/base/platform/platform-linux.cc",'),
+    # base's per-OS implementations. Chromium keeps one file per platform
+    # for each of these and picks by OS name; Haiku had none, which is
+    # where 24 of the undefined symbols came from. base_paths_posix.cc,
+    # elf_reader.cc and base/nix are shared with Linux and needed only the
+    # name adding -- nix is getenv plus a default path, and on Haiku the
+    # XDG_* variables are unset so it falls back. The rest are new Haiku
+    # files built on get_system_info, get_team_info, _get_team_usage_info
+    # and set_thread_priority. Two are stubs Chromium already ships for
+    # platforms that cannot answer: memory_stubs.cc and
+    # file_path_watcher_stub.cc.
+    ("base/BUILD.gn",
+     '    if (is_linux || is_chromeos) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "stack_canary_linux.cc",\n        "stack_canary_linux.h",\n      ]\n    }',
+     '    if (is_linux || is_chromeos) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "stack_canary_linux.cc",\n        "stack_canary_linux.h",\n      ]\n    }\n\n    if (is_haiku) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "files/file_path_watcher_stub.cc",\n        "nix/mime_util_xdg.cc",\n        "nix/mime_util_xdg.h",\n        "nix/xdg_util.cc",\n        "nix/xdg_util.h",\n        "process/memory_stubs.cc",\n        "process/process_haiku.cc",\n        "process/process_handle_haiku.cc",\n        "process/process_metrics_haiku.cc",\n        "system/sys_info_haiku.cc",\n        "threading/platform_thread_haiku.cc",\n      ]\n    }'),
+    # libjpeg_turbo's assembly decides its own symbol prefix. jsimdext.inc
+    # emits bare names when ELF is defined and underscore-prefixed ones
+    # otherwise, and the list of systems that define it did not include
+    # Haiku -- so libsimd_asm.a exported _jconst_fancy_upsample_sse2 while
+    # the C code asked for jconst_fancy_upsample_sse2. That was 178 of the
+    # 261 undefined symbols at the final link, from one missing name in one
+    # condition. nasm was already being told -felf32 by nasm_assemble.gni,
+    # which keys off is_posix; only this define was left behind.
+    ("third_party/libjpeg_turbo/BUILD.gn",
+     "    } else if (is_linux || is_android || is_fuchsia || is_chromeos) {\n"
+     '      defines += [ "ELF" ]',
+     "    } else if (is_linux || is_android || is_fuchsia || is_chromeos ||\n"
+     "               is_haiku) {\n"
+     '      defines += [ "ELF" ]'),
+    # libnetwork is where Haiku keeps the sockets API -- accept, bind,
+    # connect, getpeername, getifaddrs, the resolver, and the in6addr_*
+    # constants. Nothing networked links without it, and 26 of the first
+    # undefined symbols at the final link were in it.
+    ("build/config/BUILD.gn",
+     '    libs = [ "ssp_nonshared" ]',
+     "    libs = [\n"
+     '      "network",\n'
+     '      "ssp_nonshared",\n'
+     "    ]"),
+    # ffmpeg_generated.gni selects its source list by OS, and Haiku matched
+    # nothing -- so ffmpeg_c_sources was empty, libffmpeg_internal.a was an
+    # empty archive, and all 42 av* symbols were undefined at the final
+    # link. This is the same decision already made in ffmpeg_options.gni,
+    # where Haiku takes Linux's generated config: the .gni files are the
+    # output of running ffmpeg's configure, and Linux's is the one that
+    # describes this target.
+    ("third_party/ffmpeg/ffmpeg_generated.gni",
+     "use_linux_config = is_linux || is_chromeos || is_fuchsia",
+     "use_linux_config = is_linux || is_chromeos || is_fuchsia || is_haiku"),
     # ffmpeg links -lrt "for clock_gettime on precise", says the comment --
     # Ubuntu 12.04, where clock_gettime had not yet moved into libc. Haiku
     # has it in libroot and no librt at all, so the final link of
@@ -125,7 +457,14 @@ edits = [
      "  if (is_win) {",
      'config("default_libs") {\n'
      "  if (is_haiku) {\n"
-     '    libs = [ "ssp_nonshared" ]\n'
+     "    # libnetwork is where Haiku keeps the sockets API -- accept, bind,\n"
+     "    # connect, getpeername, getifaddrs, the resolver, and the\n"
+     "    # in6addr_* constants. Nothing networked links without it, and 26\n"
+     "    # of the first undefined symbols were in it.\n"
+     '    libs = [\n'
+     '      "network",\n'
+     '      "ssp_nonshared",\n'
+     '    ]\n'
      "  }\n"
      "  if (is_win) {"),
     # Native pixmaps are dmabuf, and Haiku has no dmabuf. These three files
