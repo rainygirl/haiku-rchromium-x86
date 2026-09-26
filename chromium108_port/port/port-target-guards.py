@@ -129,9 +129,6 @@ edits = [
     # out and every launch a plain fork-and-exec -- the path the Linux file
     # already falls back to under --no-zygote.
     ("content/browser/BUILD.gn",
-     '      "child_process_launcher_helper_linux.cc",',
-     '      "child_process_launcher_helper_linux.cc",'),
-    ("content/browser/BUILD.gn",
      "  if (is_linux) {\n"
      '    sources += [ "speech/tts_linux.cc" ]',
      "  if (is_haiku) {\n"
@@ -246,26 +243,18 @@ edits = [
      "    sources += [\n"
      '      "base/address_tracker_linux.cc",',
      "  if (is_haiku) {\n"
-     '    sources += [ "base/platform_mime_util_linux.cc" ]\n'
+     "    sources += [\n"
+     '      "base/platform_mime_util_linux.cc",\n'
+     # TestRootCerts has one file per trust store. Haiku has no NSS and
+     # no system store to consult, so it takes the same do-nothing
+     # implementation Fuchsia does, the one the built-in verifier wants.
+     '      "cert/test_root_certs_builtin.cc",\n'
+     "    ]\n"
      "  }\n"
      "\n"
      "  if (is_linux || is_chromeos || is_android) {\n"
      "    sources += [\n"
      '      "base/address_tracker_linux.cc",'),
-
-    # TestRootCerts has one file per trust store. Haiku has no NSS and no
-    # system store to consult, so it takes the same empty implementation
-    # Fuchsia does -- the one that goes with the built-in verifier.
-    ("net/BUILD.gn",
-     "  if (is_haiku) {\n"
-     '    sources += [ "base/platform_mime_util_linux.cc" ]\n'
-     "  }\n",
-     "  if (is_haiku) {\n"
-     "    sources += [\n"
-     '      "base/platform_mime_util_linux.cc",\n'
-     '      "cert/test_root_certs_builtin.cc",\n'
-     "    ]\n"
-     "  }\n"),
 
     # skia's default font manager. Haiku builds the same bundled fontconfig
     # Linux does, so the same file answers.
