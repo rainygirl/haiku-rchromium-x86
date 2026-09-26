@@ -87,6 +87,13 @@ GN=tools/gn/out-arm64/gn
   # how Chromium builds Android snapshots with a Linux mksnapshot.
   v8_snapshot_toolchain = "//build/toolchain/i686linux:x86"
   i686linux_cross_bin = "/usr/bin"
+  # content_shell answers Chrome/999.77.34.5 by default -- upstream pins it
+  # so web test expectations do not churn when the version is bumped. That is
+  # fine for a test binary and wrong for a browser: x.com decides what to
+  # serve from the version, and 999 is not a version any site has heard of.
+  # Tell the truth. These are declare_args, so no source patch is needed.
+  content_shell_version = "108.0.5359.124"
+  content_shell_major_version = "108"
   use_gold = false
   use_lld = false
   treat_warnings_as_errors = false

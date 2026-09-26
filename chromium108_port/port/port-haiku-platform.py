@@ -821,6 +821,34 @@ edits = [
      "    BUILDFLAG(IS_HAIKU)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # ... and the header that makes BUILDFLAG() mean anything here. This
+    # file reaches 108 without one.
+    ("content/shell/browser/shell_platform_delegate_aura.cc",
+     '#include "base/containers/contains.h"',
+     '#include "base/containers/contains.h"\n'
+     '#include "build/build_config.h"'),
+
+    # Show the window. The browser came up, Ozone built a HaikuWindow,
+    # published the widget and sized the canvas -- and nothing appeared on
+    # screen. HaikuWindow::Show() was never called: grep the run log and it
+    # is not there, and the fprintf is the first line of the function.
+    #
+    # ShellPlatformDataAura::ShowWindow() is what would call it, and in 108
+    # it is declared, defined and called from nowhere. Dead code upstream.
+    # The aura delegate is the path taken when toolkit_views is off, which
+    # upstream is castos, where something outside the browser puts windows
+    # on the screen. Haiku has no such thing, so content_shell has to ask.
+    ("content/shell/browser/shell_platform_delegate_aura.cc",
+     "  platform_->aura->ResizeWindow(initial_size);\n"
+     "\n"
+     "  shell_data.window = platform_->aura->host()->window();",
+     "  platform_->aura->ResizeWindow(initial_size);\n"
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "  platform_->aura->ShowWindow();\n"
+     "#endif\n"
+     "\n"
+     "  shell_data.window = platform_->aura->host()->window();"),
+
     # webrtc counts cores per platform and Haiku matched no branch, so it
     # fell to "No function to get number of cores" and used 1. Haiku's
     # libroot answers sysconf(_SC_NPROCESSORS_ONLN) -- 2 on the test
