@@ -78,7 +78,13 @@ gcc_toolchain("x86") {
     # so, and Chromium links with --fatal-warnings. The crt files come out
     # of Haiku's own buildtools and are not this port's to rebuild, and
     # the warning is about them, not about anything Chromium emits.
-    extra_ldflags = "-lbsd -Wl,--no-warn-execstack"
+    # --wrap=close: every close() in this binary goes through
+    # __wrap_close in base/haiku_close_watch.cc first, which is how the
+    # code that closes stdin gets found. Diagnostic.
+    extra_ldflags = "-lbsd -Wl,--no-warn-execstack -Wl,--wrap=close -Wl,--wrap=dup2 " +
+                   "-Wl,--wrap=fclose -Wl,--wrap=freopen -Wl,--wrap=socket " +
+                   "-Wl,--wrap=closedir -Wl,--wrap=dup " +
+                   "-Wl,--wrap=getaddrinfo"
   }
 
   # Linker map files, for working out where the 200 MB went.

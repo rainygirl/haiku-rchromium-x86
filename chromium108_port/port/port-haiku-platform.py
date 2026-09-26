@@ -952,6 +952,60 @@ edits = [
      "#include <image.h>\n"
      "#include <stdio.h>"),
 
+    # Where SocketPosix gets a socket_fd_ of 0. Its constructor sets
+    # kInvalidSocket, sockets and files share one descriptor space here
+    # (measured: socket() gives 4 and 5 while 0, 1 and 2 are open), and yet
+    # StopWatchingAndCleanUp closed fd 0 while stdin was still open. So
+    # either a caller handed it 0 or the field was not what the object
+    # thought. Logging every assignment of a descriptor of 2 or less, and
+    # the close, tells the two apart.
+    ("net/socket/socket_posix.cc",
+     '#include "net/socket/socket_posix.h"',
+     '#include "net/socket/socket_posix.h"\n'
+     "\n"
+     "#if defined(__HAIKU__)\n"
+     'extern "C" void RchNoteFd(const char* what, int fd, const void* ra);\n'
+     "#endif"),
+    ("net/socket/socket_posix.cc",
+     "  if (socket_fd_ < 0) {\n"
+     '    PLOG(ERROR) << "CreatePlatformSocket() failed";',
+     "#if defined(__HAIKU__)\n"
+     "  if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
+     '    RchNoteFd("socket() gave", socket_fd_, __builtin_return_address(0));\n'
+     "#endif\n"
+     "  if (socket_fd_ < 0) {\n"
+     '    PLOG(ERROR) << "CreatePlatformSocket() failed";'),
+    ("net/socket/socket_posix.cc",
+     "  socket_fd_ = socket;\n"
+     "\n"
+     "  if (!base::SetNonBlocking(socket_fd_)) {",
+     "  socket_fd_ = socket;\n"
+     "#if defined(__HAIKU__)\n"
+     "  if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
+     '    RchNoteFd("adopt", socket_fd_, __builtin_return_address(0));\n'
+     "#endif\n"
+     "\n"
+     "  if (!base::SetNonBlocking(socket_fd_)) {"),
+    ("net/socket/socket_posix.cc",
+     "  if (close_socket) {\n"
+     "    if (socket_fd_ != kInvalidSocket) {",
+     "  if (close_socket) {\n"
+     "#if defined(__HAIKU__)\n"
+     "    if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
+     '      RchNoteFd("about to close", socket_fd_,\n'
+     "                __builtin_return_address(0));\n"
+     "#endif\n"
+     "    if (socket_fd_ != kInvalidSocket) {"),
+    ("net/socket/socket_posix.cc",
+     "  if (new_socket < 0)\n"
+     "    return MapAcceptError(errno);",
+     "  if (new_socket < 0)\n"
+     "    return MapAcceptError(errno);\n"
+     "#if defined(__HAIKU__)\n"
+     "  if (new_socket <= 2)\n"
+     '    RchNoteFd("accept gave", new_socket, __builtin_return_address(0));\n'
+     "#endif"),
+
     # close() of an fd that is not open. x.com brought the browser down with
     #
     #   FATAL:scoped_file.cc(43) Check failed: 0 == ret.

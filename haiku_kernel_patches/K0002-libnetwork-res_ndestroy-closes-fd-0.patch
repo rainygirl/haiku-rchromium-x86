@@ -1,0 +1,103 @@
+Haiku libnetwork: res_ndestroy() closes file descriptor 0.
+
+This is not a kernel patch -- it is userland, in libnetwork's resolver -- but
+it belongs with K0001 because it is the same kind of thing: a bug in the
+system that a browser finds and nothing else does.
+
+What it does to Chromium: every x.com load eventually died with
+
+    FATAL:scoped_file.cc(43) Check failed: 0 == ret.
+    Bad file descriptor (-2147459072)
+
+-2147459072 is B_FILE_ERROR, and Haiku defines EBADF to be exactly that
+(compiled and printed on the machine rather than read off a header).
+Chromium tolerates close() failures on Linux, macOS and Fuchsia but never
+EBADF, and deliberately: EBADF means the descriptor was not closed, and
+something else will close that number later believing it owns it.
+
+The cause is not in Chromium.
+
+__res_vinit() in src/system/libnetwork/netresolv/resolv/res_init.c allocates
+the resolver's extension block and zeroes it:
+
+    statp->_u._ext.ext = malloc(sizeof(*statp->_u._ext.ext));
+    if (statp->_u._ext.ext != NULL) {
+            memset(statp->_u._ext.ext, 0, sizeof(*statp->_u._ext.ext));
+
+res_ndestroy() then frees it, and on the way out closes two descriptors the
+struct is supposed to be holding:
+
+    if (ext->kq != -1 && ext->kqpid == getpid())
+            (void)close(ext->kq);
+    if (ext->resfd != -1)
+            (void)close(ext->resfd);
+
+The agreed "no descriptor" value is -1. The struct is filled with 0. So on
+the first res_ninit() of an already-initialised state -- which is what
+__res_vinit does at its top -- res_ndestroy() calls close(0), and 0 is
+standard input.
+
+Haiku has no kqueue, so ext->kq and ext->resfd are never assigned at all
+here: they are 0 for the whole life of every resolver state, and every
+res_ndestroy() closes descriptor 0 again.
+
+How it was found, since none of it is visible from the symptom:
+
+  - the failing close is fd 0, from __builtin_return_address(0) inside
+    base::internal::ScopedFDCloseTraits::Free -- which costs nothing and
+    needs no frame pointers, and the build is -fomit-frame-pointer with
+    symbol_level = 0, so Haiku's crash report walked exactly one frame
+  - a probe at image load says fd 0, 1 and 2 are open when content_shell
+    starts, and a 1 ms watchdog says fd 0 is still standard input until
+    about 0.6 s in
+  - -Wl,--wrap on close, dup2, fclose, freopen and closedir caught nothing:
+    the call is not in the executable
+  - LD_PRELOAD is what finally names it, because it interposes for the
+    libraries too:
+
+        [FDSPY] close(0) <- /boot/system/lib/x86/libnetwork.so + 0x23bd1
+
+  - and 0x23bd1 is __res_ndestroy + 0x81, one instruction past
+
+        23bcc: call close@plt        ; close(ext->kq)
+        23bd1: mov  0x374(%edi),%eax ; ext->resfd, checked next
+
+Afterwards fd 0 is free, so socket() and mkstemp() hand it out in turn, and
+Chromium closes its own socket on fd 0 while fd 0 has become a shared memory
+temporary file. The EBADF is the lucky case; the unlucky one closes another
+subsystem's file with no message at all.
+
+The fix below initialises the two descriptors to -1, which is what the rest
+of the code means by "none". Current Haiku master instead wraps both closes
+in #ifndef __HAIKU__, which also works and is presumably how it was noticed
+elsewhere; the installed libnetwork on this machine (hrev99002, built
+2026-08-15) does not have that guard -- the disassembly above is from it.
+Initialising the field is the better of the two: it stays correct if kqueue
+support ever arrives, and it does not depend on a platform ifdef inside
+imported NetBSD code.
+
+Verified on hrev99002+148, x86_gcc2, by patching the two branches out of a
+private copy of libnetwork.so and pointing content_shell at it with
+LIBRARY_PATH:
+
+  before: close(0) from libnetwork, fd 0 gone at +0.6 s, browser dies on
+          x.com within a few page loads
+  after:  no close of 0, 1 or 2 at all, fd 0 still standard input, x.com
+          loads
+
+--- a/src/system/libnetwork/netresolv/resolv/res_init.c
++++ b/src/system/libnetwork/netresolv/resolv/res_init.c
+@@ -259,6 +259,13 @@ __res_vinit(res_state statp, int preinit)
+ 	statp->_u._ext.ext = malloc(sizeof(*statp->_u._ext.ext));
+ 	if (statp->_u._ext.ext != NULL) {
+ 	        memset(statp->_u._ext.ext, 0, sizeof(*statp->_u._ext.ext));
++		/*
++		 * memset leaves these two at 0, and 0 is a descriptor --
++		 * standard input, as a rule. res_ndestroy() closes them
++		 * unless they are -1, so they have to start at -1.
++		 */
++		statp->_u._ext.ext->kq = -1;
++		statp->_u._ext.ext->resfd = -1;
+ 		statp->_u._ext.ext->nsaddrs[0].sin = statp->nsaddr;
+ 		strcpy(statp->_u._ext.ext->nsuffix, "ip6.arpa");
+ 		strcpy(statp->_u._ext.ext->nsuffix2, "ip6.int");
