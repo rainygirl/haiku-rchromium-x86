@@ -1,0 +1,22 @@
+# Haiku-specific configs.
+
+import("//build/config/haiku/haiku.gni")
+
+# Haiku's BSD compatibility headers, for the few targets that want them.
+#
+# This is deliberately not in the toolchain's global flags, though it was at
+# first and that cost about eight thousand errors. headers/bsd is not a set of
+# extra headers off to one side: it contains sys/param.h, string.h, stdio.h
+# and a dozen more names that also exist in the POSIX headers. They are
+# written to layer (every one starts with #include_next), so nothing is
+# hidden -- but layering still *adds*. BSD's sys/param.h defines ALIGN(p),
+# dav1d defines ALIGN(ll, a), and once headers/bsd was on every compile the
+# two met through <os/kernel/OS.h> and dav1d stopped building.
+#
+# So the directory goes only where something asks for it. Today that is
+# libevent, for sys/queue.h.
+config("bsd") {
+  assert(haiku_sysroot != "",
+         "haiku_sysroot must be set to use Haiku's BSD headers")
+  include_dirs = [ haiku_sysroot + "/headers/bsd" ]
+}

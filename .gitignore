@@ -1,6 +1,8 @@
 # Build outputs and artifacts, kept on disk but out of git.
 preserved/
 build/
+# ... except the port's own gn files, which are source, not output.
+!chromium108_port/files/build/
 out/
 *.o
 *.a

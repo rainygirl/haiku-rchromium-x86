@@ -1,0 +1,6 @@
+# Where the Haiku sysroot is. Declared here rather than in the toolchain so
+# that both the toolchain and the configs below can see it without either
+# declaring the argument twice.
+declare_args() {
+  haiku_sysroot = ""
+}

@@ -1,0 +1,92 @@
+# Haiku toolchain for the x86 secondary ABI.
+#
+# Only x86 is defined. The VAIO's Atom Z520 is a 32-bit Silverthorne with no
+# Intel 64, so this machine cannot run an x64 Haiku at all and a toolchain for
+# one would be dead weight. The 87 port carried x64 and clang_x64 entries
+# inherited from HaikuPorts; neither was ever used.
+#
+# gcc, not clang: Haiku's x86_gcc2 secondary ABI is built with gcc, and the
+# `-x86` suffixed tools are the wrappers that select it. is_clang = false has
+# to be stated here because BUILDCONFIG.gn's default is true everywhere that
+# is not one of the listed non-clang architectures.
+
+import("//build/config/haiku/haiku.gni")
+import("//build/config/sysroot.gni")
+import("//build/toolchain/gcc_toolchain.gni")
+
+declare_args() {
+  # Absolute path to the cross tools. ninja runs each command through
+  # /bin/sh without the PATH the build script exported, so a bare
+  # "g++-x86" is "not found" for every compile -- which looked like a
+  # toolchain problem and was a PATH one.
+  haiku_cross_bin = ""
+
+}
+
+_p = ""
+if (haiku_cross_bin != "") {
+  _p = haiku_cross_bin + "/"
+}
+
+gcc_toolchain("x86") {
+  cc = _p + "gcc-x86"
+  cxx = _p + "g++-x86"
+
+  readelf = _p + "readelf-x86"
+  nm = _p + "nm-x86"
+  ar = _p + "ar-x86"
+  ld = cxx
+
+  if (haiku_sysroot != "") {
+    # headers/ carries Haiku's own headers under the prefixes they are
+    # written with -- <os/kernel/OS.h>, <posix/...> -- which the flattened
+    # include/ the cross tools install does not keep. dav1d asks for OS.h by
+    # that path. Nothing can be shadowed this way: every name reachable
+    # through it starts with a directory component.
+    #
+    # _DEFAULT_SOURCE is what makes Haiku's BSD headers have contents at all.
+    # sys/queue.h wraps its entire body in #ifdef _DEFAULT_SOURCE, and
+    # features.h only defines that outside strict ISO mode -- libevent
+    # compiles as -std=c11. Without it the header was found, its include
+    # guard was set, and it contributed nothing, which reads a hundred lines
+    # later as "TAILQ_ENTRY is not defined" rather than as a missing header.
+    #
+    # headers/bsd itself is NOT here. See //build/config/haiku:bsd.
+    # include/add-ons/graphics is on the path for one header: Haiku's
+    # Screen.h does #include <Accelerant.h>, and the cross tools' flattened
+    # include/ kept add-ons/ as a subdirectory rather than folding it in.
+    # Haiku's own build adds headers/os/add-ons/graphics for the same
+    # reason. Two files live there, Accelerant.h and GraphicsCard.h, so
+    # there is nothing to collide with.
+    extra_cppflags = "-D_DEFAULT_SOURCE -I" + haiku_sysroot + "/headers" +
+                     " -I" + haiku_sysroot + "/include/add-ons/graphics"
+    # -Wchanges-meaning is new in gcc 13 and is an error by default, not a
+    # warning promoted by -Werror -- the 87 port's blanket -Wno-error does
+    # nothing for it, which was checked rather than assumed. blink declares
+    # EffectPaintPropertyNode::DocumentTransitionSharedElementId() returning
+    # cc::DocumentTransitionSharedElementId, and that pattern accounts for
+    # 960 errors on its own. clang has never objected to it. It goes in
+    # extra_cxxflags rather than extra_cppflags because gcc complains about
+    # a C++-only flag on every C compile.
+    extra_cxxflags = "-Wno-changes-meaning"
+
+    # -lbsd is a shared library, so its position on the command line does
+    # not matter. libssp_nonshared is a static archive and its position does,
+    # which is why it is not here -- see //build/config:default_libs.
+    # --no-warn-execstack: the cross-tools crtn.o carries no
+    # .note.GNU-stack section, so ld assumes an executable stack and says
+    # so, and Chromium links with --fatal-warnings. The crt files come out
+    # of Haiku's own buildtools and are not this port's to rebuild, and
+    # the warning is about them, not about anything Chromium emits.
+    extra_ldflags = "-lbsd -Wl,--no-warn-execstack"
+  }
+
+  # Linker map files, for working out where the 200 MB went.
+  enable_linker_map = true
+
+  toolchain_args = {
+    current_cpu = "x86"
+    current_os = "haiku"
+    is_clang = false
+  }
+}
