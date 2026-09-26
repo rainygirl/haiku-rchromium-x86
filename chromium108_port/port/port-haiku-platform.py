@@ -835,7 +835,122 @@ edits = [
      '#include "build/build_config.h"',
      '#include "base/check.h"\n'
      '#include "base/logging.h"\n'
-     '#include "build/build_config.h"'),
+     '#include "build/build_config.h"\n'
+     "\n"
+     "#if defined(__HAIKU__)\n"
+     "#include <OS.h>\n"
+     "#include <image.h>\n"
+     "\n"
+     "#include <ostream>\n"
+     "#endif"),
+
+    # Who puts a 0 in a ScopedFDPair. The close() failure above reported
+    # fd 0 -- not a socket, not a double close of something real: fd 0 was
+    # never open in this process, so somebody used 0 where -1 means
+    # invalid. __builtin_return_address(0) in Free() named
+    # ScopedFDPair::operator=, which is where the old value is destroyed,
+    # so the 0 was put there earlier.
+    #
+    # ScopedFDPair is out of line in its own translation unit, so giving
+    # its constructor and its move assignment real bodies makes
+    # __builtin_return_address(0) the actual caller. Diagnostic; it comes
+    # out once the owner is known.
+    ("base/memory/platform_shared_memory_handle.cc",
+     "ScopedFDPair& ScopedFDPair::operator=(ScopedFDPair&&) = default;",
+     "#if defined(__HAIKU__)\n"
+     "namespace {\n"
+     "void HaikuWarnZeroFd(const char* where, int fd, int readonly_fd,\n"
+     "                     const void* ra) {\n"
+     "  if (fd != 0 && readonly_fd != 0)\n"
+     "    return;\n"
+     "  static addr_t text_base = 0;\n"
+     "  if (text_base == 0) {\n"
+     "    image_info info;\n"
+     "    int32 cookie = 0;\n"
+     "    while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {\n"
+     "      if (info.type == B_APP_IMAGE) {\n"
+     "        text_base = (addr_t)info.text;\n"
+     "        break;\n"
+     "      }\n"
+     "    }\n"
+     "  }\n"
+     '  LOG(ERROR) << "HAIKU: ScopedFDPair " << where << " fd=" << fd\n'
+     '             << " readonly_fd=" << readonly_fd << " from 0x" << std::hex\n'
+     "             << (unsigned long)((addr_t)ra - text_base) << std::dec;\n"
+     "}\n"
+     "}  // namespace\n"
+     "#endif\n"
+     "\n"
+     "ScopedFDPair& ScopedFDPair::operator=(ScopedFDPair&& other) {\n"
+     "#if defined(__HAIKU__)\n"
+     '  HaikuWarnZeroFd("operator= discards", fd.get(), readonly_fd.get(),\n'
+     "                  __builtin_return_address(0));\n"
+     '  HaikuWarnZeroFd("operator= takes", other.fd.get(),\n'
+     "                  other.readonly_fd.get(), __builtin_return_address(0));\n"
+     "#endif\n"
+     "  fd = std::move(other.fd);\n"
+     "  readonly_fd = std::move(other.readonly_fd);\n"
+     "  return *this;\n"
+     "}"),
+    ("base/memory/platform_shared_memory_handle.cc",
+     "ScopedFDPair::ScopedFDPair(ScopedFD in_fd, ScopedFD in_readonly_fd)\n"
+     "    : fd(std::move(in_fd)), readonly_fd(std::move(in_readonly_fd)) {}",
+     "ScopedFDPair::ScopedFDPair(ScopedFD in_fd, ScopedFD in_readonly_fd)\n"
+     "    : fd(std::move(in_fd)), readonly_fd(std::move(in_readonly_fd)) {\n"
+     "#if defined(__HAIKU__)\n"
+     '  HaikuWarnZeroFd("ctor", fd.get(), readonly_fd.get(),\n'
+     "                  __builtin_return_address(0));\n"
+     "#endif\n"
+     "}"),
+    ("base/memory/platform_shared_memory_handle.cc",
+     '#include "base/memory/platform_shared_memory_handle.h"',
+     '#include "base/memory/platform_shared_memory_handle.h"\n'
+     "\n"
+     "#if defined(__HAIKU__)\n"
+     "#include <OS.h>\n"
+     "#include <image.h>\n"
+     "\n"
+     "#include <ostream>\n"
+     "#include <utility>\n"
+     "\n"
+     '#include "base/logging.h"\n'
+     "#endif"),
+
+    # What the standard descriptors look like when the image loads. The
+    # first close(0) this port sees already fails, and there is no
+    # successful one before it, so either something closed stdin without
+    # going through ScopedFD or it was never open. A program launched the
+    # same way from the same shell has 0, 1 and 2 open and gets fd 4 for a
+    # new file, so the answer has to come from inside this binary.
+    ("base/files/scoped_file.cc",
+     "namespace base {\n"
+     "namespace internal {",
+     "#if defined(__HAIKU__)\n"
+     "namespace {\n"
+     "struct HaikuStdioProbe {\n"
+     "  HaikuStdioProbe() {\n"
+     "    fprintf(stderr,\n"
+     '            "[RCH] image load: fd0=%s fd1=%s fd2=%s\\n",\n'
+     '            fcntl(0, F_GETFD) != -1 ? "open" : "closed",\n'
+     '            fcntl(1, F_GETFD) != -1 ? "open" : "closed",\n'
+     '            fcntl(2, F_GETFD) != -1 ? "open" : "closed");\n'
+     "  }\n"
+     "};\n"
+     "HaikuStdioProbe g_haiku_stdio_probe;\n"
+     "}  // namespace\n"
+     "#endif\n"
+     "\n"
+     "namespace base {\n"
+     "namespace internal {"),
+    ("base/files/scoped_file.cc",
+     "#if defined(__HAIKU__)\n"
+     "#include <OS.h>\n"
+     "#include <image.h>",
+     "#if defined(__HAIKU__)\n"
+     "#include <OS.h>\n"
+     "#include <fcntl.h>\n"
+     "#include <image.h>\n"
+     "#include <stdio.h>"),
 
     # close() of an fd that is not open. x.com brought the browser down with
     #
@@ -847,18 +962,40 @@ edits = [
     # So this is not the tolerance case the block above handles. Chromium
     # keeps EBADF fatal on purpose: it means the descriptor was not closed,
     # and something else will close that number later believing it owns it.
+    # It is intermittent, which makes it a race, which makes it worse.
     #
-    # THIS EDIT HIDES A REAL BUG. It is here so the rest of the port can be
-    # tested at all -- every x.com load dies at this line -- and it logs the
-    # descriptor every time, so the double close can be found rather than
-    # forgotten. It should not survive into anything anyone installs.
+    # To find the owner: Free() is its own translation unit and this build
+    # has no LTO, so __builtin_return_address(0) is inside whatever
+    # ScopedGeneric destructor or reset() was inlined into the caller --
+    # the code that destroyed this descriptor. No frame pointers needed,
+    # which matters because V8 and the rest are built -fomit-frame-pointer
+    # and that is what made the crash report useless.
+    #
+    # The address is printed relative to the image, because the binary is a
+    # PIE and addr2line wants a file address.
     ("base/files/scoped_file.cc",
      "  PCHECK(0 == ret);\n"
      "}",
      "#if BUILDFLAG(IS_HAIKU)\n"
-     "  if (ret != 0) {\n"
-     '    PLOG(ERROR) << "HAIKU: close(" << fd << ") failed; continuing. '
-     'This is a double close or a stale descriptor and it is a bug.";\n'
+     "  // fd 0, 1 and 2 are logged whether the close succeeded or not:\n"
+     "  // the first close of stdin is the bug and the rest is fallout.\n"
+     "  if (ret != 0 || fd <= 2) {\n"
+     "    static addr_t text_base = 0;\n"
+     "    if (text_base == 0) {\n"
+     "      image_info info;\n"
+     "      int32 cookie = 0;\n"
+     "      while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {\n"
+     "        if (info.type == B_APP_IMAGE) {\n"
+     "          text_base = (addr_t)info.text;\n"
+     "          break;\n"
+     "        }\n"
+     "      }\n"
+     "    }\n"
+     "    addr_t ra = (addr_t)__builtin_return_address(0);\n"
+     '    PLOG(ERROR) << "HAIKU: close(" << fd << ") "\n'
+     '                << (ret == 0 ? "ok" : "FAILED") << " from 0x" << std::hex\n'
+     "                << (unsigned long)(ra - text_base) << std::dec\n"
+     '                << " (image-relative)";\n'
      "    ret = 0;\n"
      "  }\n"
      "#endif\n"
