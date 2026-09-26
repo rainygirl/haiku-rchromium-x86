@@ -821,6 +821,33 @@ edits = [
      "    BUILDFLAG(IS_HAIKU)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # content_shell's own user-data directory. Its per-platform function
+    # ends in NOTIMPLEMENTED() and a false, and the caller CHECKs the
+    # result, so on Haiku the browser aborted in
+    # shell_content_browser_client.cc before opening anything. Haiku has no
+    # XDG: settings go where find_directory() says, which is
+    # ~/config/settings, and that is where every other application on the
+    # system keeps them.
+    ("content/shell/browser/shell_paths.cc",
+     "#if BUILDFLAG(IS_FUCHSIA)\n"
+     '#include "base/fuchsia/file_utils.h"',
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "#include <FindDirectory.h>\n"
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     '#include "base/fuchsia/file_utils.h"'),
+    ("content/shell/browser/shell_paths.cc",
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  std::unique_ptr<base::Environment> env(base::Environment::Create());",
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  char settings[B_PATH_NAME_LENGTH];\n"
+     "  if (find_directory(B_USER_SETTINGS_DIRECTORY, -1, false, settings,\n"
+     "                     sizeof(settings)) != B_OK) {\n"
+     "    return false;\n"
+     "  }\n"
+     '  *result = base::FilePath(settings).Append("content_shell");\n'
+     "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "  std::unique_ptr<base::Environment> env(base::Environment::Create());"),
+
     # Oilpan's thread_local. Off Windows and Android, Blink asks for the
     # "local-exec" TLS model, and on a PIE -- which is what every Haiku
     # executable is -- ld turns that into six R_386_TLS_TPOFF and sets
