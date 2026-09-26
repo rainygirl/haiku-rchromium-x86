@@ -249,6 +249,10 @@ edits = [
      # no system store to consult, so it takes the same do-nothing
      # implementation Fuchsia does, the one the built-in verifier wants.
      '      "cert/test_root_certs_builtin.cc",\n'
+     # The generic system_trust_store.cc sends every platform it does not
+     # know to DummySystemTrustStore, which trusts nothing; that fails every
+     # handshake. Haiku gets its own, reading the one PEM the system ships.
+     '      "cert/internal/system_trust_store_haiku.cc",\n'
      "    ]\n"
      "  }\n"
      "\n"

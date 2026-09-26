@@ -811,6 +811,48 @@ edits = [
      "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
      "      BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU))"),
 
+    # ... and the counterpart: the built-in verifier is what Haiku calls
+    # instead, so its definition has to exist. USE_NSS_CERTS is off here.
+    ("net/cert/cert_verify_proc.cc",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
+     "// static\n"
+     "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc(",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
+     "    BUILDFLAG(IS_HAIKU)\n"
+     "// static\n"
+     "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # and the caller picks it.
+    ("net/cert/cert_verifier.cc",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "    verify_proc =\n"
+     "        CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher));",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
+     "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
+     "    verify_proc =\n"
+     "        CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher));"),
+    # The trust store the built-in verifier reads. Everything the generic
+    # file does not name falls into its #else, which is a store with no
+    # anchors in it. Haiku has its own file; keep it out of that #else.
+    ("net/cert/internal/system_trust_store.cc",
+     "#else\n"
+     "\n"
+     "std::unique_ptr<SystemTrustStore> CreateSslSystemTrustStore() {\n"
+     "  return std::make_unique<DummySystemTrustStore>();\n"
+     "}\n"
+     "\n"
+     "#endif\n",
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "\n"
+     "// CreateSslSystemTrustStore() is in system_trust_store_haiku.cc.\n"
+     "\n"
+     "#else\n"
+     "\n"
+     "std::unique_ptr<SystemTrustStore> CreateSslSystemTrustStore() {\n"
+     "  return std::make_unique<DummySystemTrustStore>();\n"
+     "}\n"
+     "\n"
+     "#endif\n"),
+
     # MSG_CONFIRM is a Linux flag telling the kernel the path is still
     # valid, so it need not re-ARP. Apple is already excluded; Haiku has no
     # such flag and the send works without it.
