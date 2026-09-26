@@ -147,3 +147,76 @@ the target -- 539 of them, from four static_asserts that test the header's own
 macro machinery. The macros work; the self-test does not expand as they
 expect. 108 is built with clang upstream, so this is the first of a class:
 things that break because the compiler is gcc, not because the OS is Haiku.
+
+## Linking (2026-09-26)
+
+The compile reached zero and the link started at 333 undefined symbols.
+Three groups accounted for 246 of them, and all three were the same shape --
+a list of operating systems that Haiku was not in:
+
+| symbols | cause |
+| --- | --- |
+| 178 | libjpeg_turbo's `ELF` define: the assembly emits `_jconst_...` when it is absent, the C expects `jconst_...` |
+| 42 | ffmpeg's `use_linux_config`: no branch matched, the source list was empty, the archive was empty |
+| 26 | `-lnetwork`: sockets and the resolver are not in libroot on Haiku |
+
+The rest came off a few at a time, and the last four were about certificates.
+
+### Haiku had no font manager at all
+
+Not an undefined symbol -- skia simply gives Haiku no `SkFontMgr`, and a
+browser with no font manager renders no text while reporting nothing wrong.
+Chromium's bundled fontconfig answers (`use_bundled_fontconfig = true`), which
+is also what the Linux path uses. **Its compiled-in paths have not been
+tested on the machine yet.**
+
+### The built-in certificate verifier comes with a trust store
+
+Haiku has no system verifier to call, which is Linux's, ChromeOS's and
+Fuchsia's position too, so it takes Chromium's built-in one. Adding Haiku to
+those guards is four edits, not one -- the definition, the declaration, the
+include, and `net/BUILD.gn` for `test_root_certs_builtin.cc`. Open three of
+four and the fourth is a link error a full build later.
+
+And the guard that matters most is not in that list. `CreateSslSystemTrustStore()`
+has a branch per platform and an `#else` returning `DummySystemTrustStore`,
+which trusts nothing: every handshake would fail, with no build error and no
+message saying why. `system_trust_store_haiku.cc` reads the one PEM the
+`ca_root_certificates` package ships, found through `find_directory()`.
+
+## The loader would not touch it (2026-09-26)
+
+`content_shell` linked -- 262 MB, ELF32 i386, needing libbsd, libnetwork,
+libz, libuuid, libbe, libstdc++ and libroot, all present. Haiku answered:
+
+	runtime_loader: content_shell: Troubles handling dynamic section
+
+The Chromium 87 binary on the same machine has `DT_FLAGS = 0xc`
+(TEXTREL | BIND_NOW). This one had `0x14`: TEXTREL | **STATIC_TLS**. Clearing
+that bit by hand got one step further, to `Troubles relocating: Operation not
+allowed`, which says it is the relocations and not the flag.
+
+Counting relocation types in both binaries put it beyond doubt:
+
+| | 87 (runs) | 108 (refused) |
+| --- | --- | --- |
+| `R_386_TLS_TPOFF` | 0 | **6** |
+| `R_386_TLS_DTPMOD32` | 16 | 20 |
+| `R_386_TLS_DTPOFF32` | 2 | 2 |
+
+Six relocations out of 406,392. All six in `blink::ThreadStateStorage` --
+Oilpan's `thread_local`. Off Windows and Android, Blink asks for the
+`local-exec` TLS model, and on a PIE, which every Haiku executable is, ld
+turns that into `TPOFF` and sets `DF_STATIC_TLS`. `local-dynamic` emits
+`DTPMOD32`/`DTPOFF32` instead, which the loader does handle -- the 87 binary
+proves it -- and Blink already ships that model for Android and for every
+component build. Choosing between two supported configurations, not inventing
+a third.
+
+### What the port gets for free by being second
+
+Every question in this section was answered by a binary sitting on the same
+disk that already works. Which relocation types the loader accepts, what
+`DT_FLAGS` should look like, which libraries the link needs: all of it read
+off Chromium 87 rather than guessed at or looked up. A first port has none of
+that.
