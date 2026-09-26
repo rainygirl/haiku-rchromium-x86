@@ -821,6 +821,26 @@ edits = [
      "    BUILDFLAG(IS_HAIKU)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # Oilpan's thread_local. Off Windows and Android, Blink asks for the
+    # "local-exec" TLS model, and on a PIE -- which is what every Haiku
+    # executable is -- ld turns that into six R_386_TLS_TPOFF and sets
+    # DF_STATIC_TLS. Haiku's runtime_loader refuses the image outright:
+    # "Troubles handling dynamic section", before a line of it runs.
+    # Clear that flag by hand and it gets one step further and stops at
+    # "Troubles relocating: Operation not allowed" -- it is the
+    # relocations it cannot do, not the flag.
+    #
+    # "local-dynamic" produces R_386_TLS_DTPMOD32 and DTPOFF32 instead,
+    # which the loader does handle: the Chromium 87 build on this machine
+    # has sixteen of them and runs. It is also a model Blink already ships
+    # -- Android and every component build use it -- so this is choosing
+    # between two supported configurations, not inventing one.
+    ("third_party/blink/renderer/platform/heap/thread_local.h",
+     "#elif BUILDFLAG(IS_ANDROID)\n"
+     '#define BLINK_HEAP_THREAD_LOCAL_MODEL "local-dynamic"',
+     "#elif BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_HAIKU)\n"
+     '#define BLINK_HEAP_THREAD_LOCAL_MODEL "local-dynamic"'),
+
     # ... and the include the definition needs.
     ("net/cert/cert_verify_proc.cc",
      "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
