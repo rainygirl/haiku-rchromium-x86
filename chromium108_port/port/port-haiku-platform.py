@@ -821,6 +821,40 @@ edits = [
      "    BUILDFLAG(IS_HAIKU)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # webrtc counts cores per platform and Haiku matched no branch, so it
+    # fell to "No function to get number of cores" and used 1. Haiku's
+    # libroot answers sysconf(_SC_NPROCESSORS_ONLN) -- 2 on the test
+    # machine, measured -- so it takes the same line Linux does. Worth
+    # fixing even for a browser this slow: webrtc sizes its thread pools
+    # from this, and one core means half the machine.
+    ("third_party/webrtc/system_wrappers/source/cpu_info.cc",
+     "#elif defined(WEBRTC_LINUX) || defined(WEBRTC_ANDROID)\n"
+     "  number_of_cores = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));",
+     "#elif defined(WEBRTC_LINUX) || defined(WEBRTC_ANDROID) || \\\n"
+     "    defined(WEBRTC_HAIKU) || defined(__HAIKU__)\n"
+     "  number_of_cores = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));"),
+
+    # Where UNREACHABLE() was reached. In a release build V8_Fatal takes no
+    # file and no line, so an UNREACHABLE anywhere in V8 prints
+    #
+    #     # Fatal error in , line 0
+    #     # unreachable code
+    #
+    # and the stack behind it is one frame deep, because V8 is compiled with
+    # -fomit-frame-pointer and Haiku's debug report walks ebp. That is a
+    # crash with no location at all. Putting __FILE__ and __LINE__ in the
+    # message costs nothing a release build cares about and is the
+    # difference between a bug report and a guess.
+    ("v8/src/base/logging.h",
+     '#define UNIMPLEMENTED() FATAL("unimplemented code")\n'
+     '#define UNREACHABLE() FATAL("unreachable code")',
+     "#define V8_HAIKU_STR_(x) #x\n"
+     "#define V8_HAIKU_STR(x) V8_HAIKU_STR_(x)\n"
+     '#define UNIMPLEMENTED() \\\n'
+     '  FATAL("unimplemented code at " __FILE__ ":" V8_HAIKU_STR(__LINE__))\n'
+     "#define UNREACHABLE() \\\n"
+     '  FATAL("unreachable code at " __FILE__ ":" V8_HAIKU_STR(__LINE__))'),
+
     # content_shell's own user-data directory. Its per-platform function
     # ends in NOTIMPLEMENTED() and a false, and the caller CHECKs the
     # result, so on Haiku the browser aborted in
