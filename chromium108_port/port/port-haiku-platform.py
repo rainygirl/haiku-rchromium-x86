@@ -821,6 +821,23 @@ edits = [
      "    BUILDFLAG(IS_HAIKU)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc("),
+    # ... and the include the definition needs.
+    ("net/cert/cert_verify_proc.cc",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
+     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n"
+     '#include "net/cert/cert_verify_proc_builtin.h"',
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
+     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED) || BUILDFLAG(IS_HAIKU)\n"
+     '#include "net/cert/cert_verify_proc_builtin.h"'),
+    # ... and the declaration that goes with it. Opening the definition
+    # without the header is a guard opened by half, which this port has
+    # done five times already.
+    ("net/cert/cert_verify_proc.h",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
+     "  // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore.",
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
+     "    BUILDFLAG(IS_HAIKU)\n"
+     "  // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore."),
     # and the caller picks it.
     ("net/cert/cert_verifier.cc",
      "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"

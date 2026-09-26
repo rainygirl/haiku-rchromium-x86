@@ -261,6 +261,24 @@ edits = [
      '      "base/address_tracker_linux.cc",',
      '      "base/platform_mime_util_linux.cc",\n      "cert/'),
 
+    # angle::GetSystemInfo(). gpu_info_collector_fuchsia.cc calls it and
+    # the target that defines it builds no source on Haiku, so the symbol
+    # is missing at the final link. The Linux file answers: without libpci
+    # and without X11 it returns false on the first line -- no GPU found --
+    # and never reaches the /sys and /etc paths that would not be there.
+    ("third_party/angle/BUILD.gn",
+     "  if (is_android) {\n"
+     "    sources += libangle_gpu_info_util_android_sources\n"
+     "  }\n",
+     "  if (is_android) {\n"
+     "    sources += libangle_gpu_info_util_android_sources\n"
+     "  }\n"
+     "\n"
+     "  if (is_haiku) {\n"
+     "    sources += libangle_gpu_info_util_linux_sources\n"
+     "  }\n",
+     "if (is_haiku) {\n    sources += libangle_gpu_info_util_linux_sources"),
+
     # skia's default font manager. Haiku builds the same bundled fontconfig
     # Linux does, so the same file answers.
     ("skia/BUILD.gn",
