@@ -64,17 +64,17 @@ edits = [
     # pixmap with -- the implementations were excluded for that reason
     # several commits ago and only the call sites were left.
     ("gpu/ipc/common/gpu_memory_buffer_support.cc",
-     "#if defined(USE_OZONE)\n"
+     "#if BUILDFLAG(IS_OZONE)\n"
      "    case gfx::NATIVE_PIXMAP:\n"
      "      return GpuMemoryBufferImplNativePixmap::CreateFromHandle(",
-     "#if defined(USE_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
+     "#if BUILDFLAG(IS_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
      "    case gfx::NATIVE_PIXMAP:\n"
      "      return GpuMemoryBufferImplNativePixmap::CreateFromHandle("),
     ("gpu/command_buffer/service/shared_image/shared_image_factory.cc",
-     "#elif defined(USE_OZONE)\n"
+     "#elif BUILDFLAG(IS_OZONE)\n"
      "  // For all Ozone platforms - Desktop Linux, ChromeOS, Fuchsia, CastOS.\n"
      "  if (ui::OzonePlatform::GetInstance()",
-     "#elif defined(USE_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
+     "#elif BUILDFLAG(IS_OZONE) && !BUILDFLAG(IS_HAIKU)\n"
      "  // For all Ozone platforms - Desktop Linux, ChromeOS, Fuchsia, CastOS.\n"
      "  if (ui::OzonePlatform::GetInstance()"),
 
@@ -196,15 +196,36 @@ edits = [
      "#define ftello64 ftello\n"
      "#define fseeko64 fseeko\n"
      "#endif"),
-    # OutputToStreamWithPrefix is a const member; the Haiku arm added a few
-    # commits ago left the const off.
+    # StackTrace::OutputToStreamWithPrefix only exists when HAVE_BACKTRACE
+    # does, and that wants __GLIBC__, so on Haiku the definition is simply
+    # not there and the link fails. Haiku keeps symbol lookup in its debug_
+    # API rather than in execinfo, which is separate work; the addresses are
+    # still worth printing, because they resolve by hand.
     ("base/debug/stack_trace_posix.cc",
-     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
-     "                                          const char* prefix_string) {\n"
-     "  // No backtrace_symbols here",
+     "#if defined(HAVE_BACKTRACE)\n"
      "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
      "                                          const char* prefix_string) const {\n"
-     "  // No backtrace_symbols here"),
+     "  StreamBacktraceOutputHandler handler(os);\n"
+     "  ProcessBacktrace(trace_, count_, prefix_string, &handler);\n"
+     "}\n"
+     "#endif",
+     "#if defined(HAVE_BACKTRACE)\n"
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
+     "                                          const char* prefix_string) const {\n"
+     "  StreamBacktraceOutputHandler handler(os);\n"
+     "  ProcessBacktrace(trace_, count_, prefix_string, &handler);\n"
+     "}\n"
+     "#else\n"
+     "void StackTrace::OutputToStreamWithPrefix(std::ostream* os,\n"
+     "                                          const char* prefix_string) const {\n"
+     "  for (size_t i = 0; i < count_; ++i) {\n"
+     "    if (prefix_string)\n"
+     "      *os << prefix_string;\n"
+     '    *os << "\\t" << trace_[i] << "\\n";\n'
+     "  }\n"
+     "}\n"
+     "#endif"),
+
     # bits::AlignUp wants both arguments the same type, and ElfW(Word) is
     # uint32 -- which on Haiku is "unsigned long", not "unsigned int". So
     # AlignUp(n_namesz, 4u) has nothing to deduce. int32-is-long again, the
@@ -264,10 +285,6 @@ edits = [
      "#include <image.h>\n"
      "#endif"),
 
-    # StackTrace::OutputToStreamWithPrefix lives inside the same no-execinfo
-    # guard as the rest of the symbolising code, so excluding Haiku from that
-    # guard took the definition with it -- my own doing, a few commits back.
-    # Haiku gets a version that prints the addresses and says why there are
     # no names.
     ("base/debug/stack_trace_posix.cc",
      "#if !defined(__UCLIBC__) && !defined(_AIX) && !defined(__HAIKU__)\n"
@@ -294,19 +311,19 @@ edits = [
     ("components/feature_engagement/public/feature_constants.h",
      "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
      "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n"
-     "BASE_DECLARE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature);",
+     "BASE_DECLARE_FEATURE(kIPHAutofillExternalAccountProfileSuggestionFeature);",
      "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
      "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
      "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
-     "BASE_DECLARE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature);"),
+     "BASE_DECLARE_FEATURE(kIPHAutofillExternalAccountProfileSuggestionFeature);"),
     ("components/feature_engagement/public/feature_constants.cc",
      "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
      "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n"
-     "BASE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature,",
+     "BASE_FEATURE(kIPHAutofillExternalAccountProfileSuggestionFeature,",
      "#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n"
      "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n"
      "    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
-     "BASE_FEATURE(kIPHAutofillVirtualCardSuggestionFeature,"),
+     "BASE_FEATURE(kIPHAutofillExternalAccountProfileSuggestionFeature,"),
     # Haiku's struct dirent has no d_type. The 87 port guarded the four
     # places fontconfig reads it (patch 0021); turning the define off does
     # the same thing in one line, because each of those sites is already an
@@ -360,9 +377,9 @@ edits = [
     # #else arm below this block is an empty implementation, which is what
     # Windows and macOS get for the same reason.
     ("content/common/set_process_title.cc",
-     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_SOLARIS) && \\\n"
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_SOLARIS) && \\\n"
      "    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA)",
-     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_SOLARIS) && \\\n"
+     "#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_SOLARIS) && \\\n"
      "    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_HAIKU)"),
     # Variations, field trials and the flags page each pick a platform name.
     # Two of them already say "default BSD and Solaris to Linux to not break
@@ -518,23 +535,27 @@ edits = [
     # means "nothing special".
     ("gpu/command_buffer/common/gpu_memory_buffer_support.cc",
      "#elif BUILDFLAG(IS_FUCHSIA)\n"
-     "  return GL_TEXTURE_2D;\n"
+     "  // Fuchsia uses Vulkan.\n"
+     "  return 0;\n"
      "#elif BUILDFLAG(IS_NACL)",
-     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  // Fuchsia uses Vulkan.\n"
+     "  return 0;\n"
+     "#elif BUILDFLAG(IS_HAIKU)\n"
+     "  // No GL here, and this is asked for before anyone checks.\n"
+     "  // GL_TEXTURE_2D is the answer that means nothing special.\n"
      "  return GL_TEXTURE_2D;\n"
      "#elif BUILDFLAG(IS_NACL)"),
 
     ("gpu/config/gpu_test_config.cc",
      "#elif BUILDFLAG(IS_FUCHSIA)\n"
      "  return GPUTestConfig::kOsFuchsia;\n"
-     "#else\n"
-     '#error "unknown os"',
+     "#elif BUILDFLAG(IS_IOS)",
      "#elif BUILDFLAG(IS_FUCHSIA)\n"
      "  return GPUTestConfig::kOsFuchsia;\n"
      "#elif BUILDFLAG(IS_HAIKU)\n"
      "  return GPUTestConfig::kOsUnknown;\n"
-     "#else\n"
-     '#error "unknown os"'),
+     "#elif BUILDFLAG(IS_IOS)"),
 
     # Content settings are registered per platform from a bitmask. There is
     # no PLATFORM_HAIKU bit and adding one would mean touching every
@@ -563,12 +584,10 @@ edits = [
     ("third_party/blink/renderer/core/execution_context/navigator_base.cc",
      "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
      '  return "Linux x86_64";\n'
-     "#else\n"
-     "#error Unsupported platform",
+     "#elif BUILDFLAG(IS_IOS)",
      "#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
      '  return "Linux x86_64";\n'
-     "#else\n"
-     "#error Unsupported platform"),
+     "#elif BUILDFLAG(IS_IOS)"),
     # Every use of ExternalSemaphore in this file is already behind
     # BUILDFLAG(ENABLE_VULKAN) -- eleven guards -- but the include is not,
     # and external_semaphore.h opens with <vulkan/vulkan_core.h>. With
@@ -600,10 +619,8 @@ edits = [
     # something odd, this is the first place to look.
     ("content/common/user_agent.cc",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
-     '  return "";\n'
-     "#else\n"
-     "#error Unsupported platform\n"
-     "#endif",
+     '  return "Fuchsia";\n'
+     "#elif BUILDFLAG(IS_LINUX)",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
      '  return "";\n'
      "#elif BUILDFLAG(IS_HAIKU)\n"
@@ -614,9 +631,7 @@ edits = [
     ("content/common/user_agent.cc",
      '#elif BUILDFLAG(IS_LINUX)\n'
      '  return "X11; Linux x86_64";\n'
-     "#else\n"
-     "#error Unsupported platform\n"
-     "#endif",
+     "#elif BUILDFLAG(IS_IOS)",
      '#elif BUILDFLAG(IS_LINUX)\n'
      '  return "X11; Linux x86_64";\n'
      "#elif BUILDFLAG(IS_HAIKU)\n"
@@ -1111,8 +1126,8 @@ edits = [
     # message costs nothing a release build cares about and is the
     # difference between a bug report and a guess.
     ("v8/src/base/logging.h",
-     '#define UNIMPLEMENTED() FATAL("unimplemented code")\n'
-     '#define UNREACHABLE() FATAL("unreachable code")',
+     "#define UNIMPLEMENTED() FATAL(::v8::base::kUnimplementedCodeMessage)\n"
+     "#define UNREACHABLE() FATAL(::v8::base::kUnreachableCodeMessage)",
      "#define V8_HAIKU_STR_(x) #x\n"
      "#define V8_HAIKU_STR(x) V8_HAIKU_STR_(x)\n"
      '#define UNIMPLEMENTED() \\\n'

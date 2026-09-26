@@ -22,9 +22,9 @@ edits = [
     # gpu_info_collector_fuchsia.cc calls angle::GetSystemInfo, so the dep
     # that provides it has to come with it.
     ("gpu/config/BUILD.gn",
-     "  if (is_linux || is_chromeos || is_mac || is_fuchsia) {\n"
+     "  if (is_linux || is_chromeos || is_apple || is_fuchsia || is_android) {\n"
      '    deps += [ "//third_party/angle:angle_gpu_info_util" ]',
-     "  if (is_linux || is_chromeos || is_mac || is_fuchsia || is_haiku) {\n"
+     "  if (is_linux || is_chromeos || is_apple || is_fuchsia || is_android ||\n      is_haiku) {\n"
      '    deps += [ "//third_party/angle:angle_gpu_info_util" ]'),
 
     # The Ozone shared-image path. These are dmabuf-backed images, which
@@ -392,8 +392,8 @@ edits = [
     # which are declared for Linux and ChromeOS only. The 87 port skipped
     # the zygote too (patch 0076).
     ("content/public/common/zygote/features.gni",
-     "use_zygote_handle = is_posix && !is_android && !is_mac",
-     "use_zygote_handle = is_posix && !is_android && !is_mac && !is_haiku"),
+     "use_zygote = is_posix && !is_android && !is_apple",
+     "use_zygote = is_posix && !is_android && !is_apple && !is_haiku"),
     # Safe Browsing filters its download-file-type list by platform and
     # Haiku is not one the protocol knows, so gn picked the deliberate
     # "unknown_target_arch" and the generator refused. The list says which
@@ -512,8 +512,8 @@ edits = [
     # extension does not exist. The comment above this block excludes
     # Fuchsia for exactly this reason.
     ("ui/gl/BUILD.gn",
-     "    if (is_posix && !is_fuchsia && !is_mac) {",
-     "    if (is_posix && !is_fuchsia && !is_mac && !is_haiku) {"),
+     "    if (is_posix && !is_fuchsia && !is_mac && !is_ios) {",
+     "    if (is_posix && !is_fuchsia && !is_mac && !is_ios && !is_haiku) {"),
     # ...and the provider it falls back to has to be compiled. Same edit the
     # 87 port made (patch 0032).
     ("ui/base/BUILD.gn",

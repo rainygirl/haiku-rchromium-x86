@@ -72,9 +72,10 @@ edits = [
     # Haiku's libroot has no malloc_usable_size, so it belongs with AIX on
     # the exclusion side -- 578 errors came from this one line.
     ("v8/src/base/platform/memory.h",
-     "#if (V8_OS_POSIX && !V8_OS_AIX) || V8_OS_WIN\n"
+     "#if (V8_OS_POSIX && !V8_OS_AIX && !V8_OS_SOLARIS) || V8_OS_WIN\n"
      "#define V8_HAS_MALLOC_USABLE_SIZE 1",
-     "#if (V8_OS_POSIX && !V8_OS_AIX && !V8_OS_HAIKU) || V8_OS_WIN\n"
+     "#if (V8_OS_POSIX && !V8_OS_AIX && !V8_OS_SOLARIS && !V8_OS_HAIKU) || \\\n"
+     "    V8_OS_WIN\n"
      "#define V8_HAS_MALLOC_USABLE_SIZE 1"),
 
     # Not a Haiku problem: export-template.h ends with four static_asserts
