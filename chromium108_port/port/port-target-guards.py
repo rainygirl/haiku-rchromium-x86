@@ -258,7 +258,8 @@ edits = [
      "\n"
      "  if (is_linux || is_chromeos || is_android) {\n"
      "    sources += [\n"
-     '      "base/address_tracker_linux.cc",'),
+     '      "base/address_tracker_linux.cc",',
+     '      "base/platform_mime_util_linux.cc",\n      "cert/'),
 
     # skia's default font manager. Haiku builds the same bundled fontconfig
     # Linux does, so the same file answers.
@@ -741,13 +742,29 @@ edits = [
 ]
 
 done = 0
-for rel, old, new in edits:
+for edit in edits:
+    rel, old, new = edit[0], edit[1], edit[2]
+    # An optional marker: a string the file contains if and only if this
+    # edit has been applied, whatever shape it was applied in. Edits that
+    # insert a block need one. The already-applied test below reads the
+    # replacement back out of the text, so the day the replacement changes
+    # it stops recognising the block it wrote last time and writes a second
+    # one -- which ninja reports as two rules for one object file, a build
+    # phase later. A marker names that case instead.
+    marker = edit[3] if len(edit) > 3 else None
     path = "%s/%s" % (root, rel)
     try:
         s = open(path).read()
     except FileNotFoundError:
         print("  missing: %s" % rel)
         continue
+    if marker is not None:
+        if new in s:
+            continue
+        if marker in s:
+            print("  STALE: %s -- the block is there but not in this shape; "
+                  "put the tree back before rerunning" % rel)
+            continue
     # Whether an edit has already been applied cannot be asked the same way
     # for every edit, and getting it wrong is silent both ways.
     #
