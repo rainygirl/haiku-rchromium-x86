@@ -828,6 +828,44 @@ edits = [
      '#include "base/containers/contains.h"\n'
      '#include "build/build_config.h"'),
 
+    # ... and the header PLOG is in. scoped_file.cc includes base/check.h,
+    # which has PCHECK but not PLOG.
+    ("base/files/scoped_file.cc",
+     '#include "base/check.h"\n'
+     '#include "build/build_config.h"',
+     '#include "base/check.h"\n'
+     '#include "base/logging.h"\n'
+     '#include "build/build_config.h"'),
+
+    # close() of an fd that is not open. x.com brought the browser down with
+    #
+    #   FATAL:scoped_file.cc(43) Check failed: 0 == ret.
+    #   Bad file descriptor (-2147459072)
+    #
+    # and -2147459072 is B_FILE_ERROR, which Haiku defines EBADF to be --
+    # compiled and printed on the machine rather than read off a header.
+    # So this is not the tolerance case the block above handles. Chromium
+    # keeps EBADF fatal on purpose: it means the descriptor was not closed,
+    # and something else will close that number later believing it owns it.
+    #
+    # THIS EDIT HIDES A REAL BUG. It is here so the rest of the port can be
+    # tested at all -- every x.com load dies at this line -- and it logs the
+    # descriptor every time, so the double close can be found rather than
+    # forgotten. It should not survive into anything anyone installs.
+    ("base/files/scoped_file.cc",
+     "  PCHECK(0 == ret);\n"
+     "}",
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "  if (ret != 0) {\n"
+     '    PLOG(ERROR) << "HAIKU: close(" << fd << ") failed; continuing. '
+     'This is a double close or a stale descriptor and it is a bug.";\n'
+     "    ret = 0;\n"
+     "  }\n"
+     "#endif\n"
+     "\n"
+     "  PCHECK(0 == ret);\n"
+     "}"),
+
     # Show the window. The browser came up, Ozone built a HaikuWindow,
     # published the widget and sized the canvas -- and nothing appeared on
     # screen. HaikuWindow::Show() was never called: grep the run log and it
