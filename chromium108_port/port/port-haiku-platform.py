@@ -855,6 +855,14 @@ edits = [
     # machine, measured -- so it takes the same line Linux does. Worth
     # fixing even for a browser this slow: webrtc sizes its thread pools
     # from this, and one core means half the machine.
+    # ... and the header sysconf is in. webrtc includes <unistd.h> only on
+    # the Linux branch, so opening the branch without the include is a guard
+    # opened by half, again.
+    ("third_party/webrtc/system_wrappers/source/cpu_info.cc",
+     "#elif defined(WEBRTC_LINUX)\n"
+     "#include <unistd.h>",
+     "#elif defined(WEBRTC_LINUX) || defined(__HAIKU__)\n"
+     "#include <unistd.h>"),
     ("third_party/webrtc/system_wrappers/source/cpu_info.cc",
      "#elif defined(WEBRTC_LINUX) || defined(WEBRTC_ANDROID)\n"
      "  number_of_cores = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));",

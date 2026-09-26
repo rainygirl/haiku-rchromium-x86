@@ -220,3 +220,74 @@ disk that already works. Which relocation types the loader accepts, what
 `DT_FLAGS` should look like, which libraries the link needs: all of it read
 off Chromium 87 rather than guessed at or looked up. A first port has none of
 that.
+
+## It draws (2026-09-26)
+
+![top-level await rendered on Haiku x86](tla-renders.png)
+
+A window titled "R Chromium", a white page, and the words `top-level await
+works` -- a module Chromium 87 answers with `SyntaxError: Unexpected reserved
+word`, parsed and run and painted on a 1.33 GHz Atom.
+
+Getting there took three more things, and none of them was where the symptom
+pointed.
+
+### The snapshot has to be made by a process of the target word size
+
+The renderer died on every load with
+
+	# Fatal error in , line 0
+	# unreachable code
+
+and nothing behind it: a release build calls `V8_Fatal` without file or line,
+V8 is compiled `-fomit-frame-pointer`, and Haiku's debug report walks `ebp`,
+so the stack was one frame deep and that frame was `OS::Abort`. Teaching
+`UNREACHABLE()` to carry `__FILE__` and `__LINE__` cost one rebuild and
+answered it outright: `v8/src/snapshot/deserializer.cc:1259`, the default of
+the bytecode switch.
+
+The note this port had left in `args.gn` said "V8 can emit a 32-bit snapshot
+from a 64-bit mksnapshot". That is wrong. A snapshot is a serialised heap of
+tagged pointers, and mksnapshot also *runs* the JavaScript it is snapshotting,
+so it needs the target's word size and the ability to execute the code it
+generates. Chromium builds mksnapshot for the host and turns on the simulator
+for every architecture V8 can simulate; ia32 is the one with none.
+
+The host is arm64 and there is no i386 multilib for it. What there is:
+Debian's i686 Linux cross compiler, and qemu-i386 through binfmt_misc, which
+Docker registers on this machine -- checked with a static i686 binary whose
+exit code came back intact. So `//build/toolchain/i686linux:x86` builds
+mksnapshot statically for i686 Linux and qemu runs it. Compiling stays native
+arm64; only mksnapshot is emulated. The OS does not matter: a snapshot is
+architecture-specific and OS-agnostic, which is how Chromium builds Android's
+with a Linux mksnapshot.
+
+### content_shell never asks for its window to be shown
+
+With the renderer alive, everything worked except that nothing appeared.
+`hey` answered `count of Window = 1` from the BApplication and hung on every
+query addressed to the window itself; Haiku's screenshot showed Deskbar
+running `content_shell` and an empty desktop; and `HaikuWindow::Show()` was
+nowhere in the log, which is conclusive because the `fprintf` is that
+function's first line.
+
+`ShellPlatformDataAura::ShowWindow()` is what would call it. In 108 it is
+declared, defined, and called from nowhere -- dead code. The aura delegate is
+the path taken when `toolkit_views` is off, which upstream means castos,
+where something outside the browser puts windows on the screen. Haiku has no
+such thing, so content_shell asks.
+
+### Measured, not assumed
+
+| | |
+| --- | --- |
+| DevTools answers | 0.4 s after launch |
+| launch to last query | 2 s |
+| `WWWWWWWWWW` at 40px | 399 / 370 / 420 / 370 px for a missing family, Noto Sans, serif, sans-serif |
+| `navigator.platform` | `Haiku BePC` |
+
+The "60-80 s" in the 87 notes is x.com's render time, not the browser's
+startup, and it had been repeated here for a local page until it was
+measured. The font widths differ per family and arrive instantly, which is
+what says fontconfig is answering -- `getComputedStyle().fontFamily` does
+not, because that is what the page asked for rather than what was found.
