@@ -13,7 +13,7 @@ apt-get -qq install -y build-essential python3 pkg-config ninja-build libnss3-de
 # The source tarball does not carry it -- that arrives with gclient sync --
 # and the copy it would carry is an x86-64 binary, which is no use on this
 # arm64 host anyway. Point the path at the distribution's node.
-NODEDIR=/build/chromium108/third_party/node/linux/node-linux-x64/bin
+NODEDIR=/build/chromium114/third_party/node/linux/node-linux-x64/bin
 mkdir -p "$NODEDIR"
 ln -sf /usr/bin/node "$NODEDIR/node"
 
@@ -22,14 +22,14 @@ ln -sf /usr/bin/node "$NODEDIR/node"
 # /lib64/ld-linux-x86-64.so.2 and says so once per devtools target -- 25 of
 # them. Replace it with the arm64 build of the same tool; its command line is
 # the part this build depends on and that has not changed.
-ESBUILD=/build/chromium108/third_party/devtools-frontend/src/third_party/esbuild/esbuild
+ESBUILD=/build/chromium114/third_party/devtools-frontend/src/third_party/esbuild/esbuild
 if [ -e "$ESBUILD" ]; then
 	# The version has to match devtools' own, not merely be recent: esbuild's
 	# JS client refuses a binary whose version differs -- "Host version
 	# 0.14.13 does not match binary version 0.16.17". Read the pin out of
 	# node_modules rather than guessing it.
 	EV=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
-	     /build/chromium108/third_party/devtools-frontend/src/node_modules/esbuild/package.json 2>/dev/null)
+	     /build/chromium114/third_party/devtools-frontend/src/node_modules/esbuild/package.json 2>/dev/null)
 	[ -n "$EV" ] || EV=0.14.13
 	HAVE=$("$ESBUILD" --version 2>/dev/null | tr -d ' \n')
 	if [ "$HAVE" != "$EV" ]; then
@@ -49,7 +49,7 @@ SYSROOT=/build/generated.x86only/cross-tools-x86/i586-pc-haiku
 export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="$SYSROOT/lib/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
-cd /build/chromium108
+cd /build/chromium114
 ninja -C out/haiku-x86 -k0 -j"${JOBS:-10}" content_shell > /work/ninja.log 2>&1
 echo "ninja exit=$?"
 echo "=== progress ==="

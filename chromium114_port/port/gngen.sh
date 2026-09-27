@@ -10,7 +10,7 @@ export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 export PKG_CONFIG_LIBDIR="$SYSROOT/lib/pkgconfig"
 
-cd /build/chromium108
+cd /build/chromium114
 # The bundled gn is an x86-64 ELF; this one was built here for arm64 so
 # that the whole build -- gn, the cross-compiler, ninja -- runs native.
 GN=tools/gn/out-arm64/gn

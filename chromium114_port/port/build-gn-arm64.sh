@@ -14,7 +14,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null
 apt-get -qq install -y build-essential python3 ninja-build >/dev/null
-cd /build/chromium108/tools/gn
+cd /build/chromium114/tools/gn
 rm -rf out-arm64
 # gen.py writes clang++ into the ninja file and there is no clang here.
 CC=gcc CXX=g++ AR=ar python3 build/gen.py --out-path=out-arm64 \
@@ -25,7 +25,7 @@ cat > out-arm64/last_commit_position.h <<'HDR'
 #ifndef OUT_LAST_COMMIT_POSITION_H_
 #define OUT_LAST_COMMIT_POSITION_H_
 #define LAST_COMMIT_POSITION_NUM 0
-#define LAST_COMMIT_POSITION "108.0.5359.124 (tarball)"
+#define LAST_COMMIT_POSITION "114.0.5735.199 (tarball)"
 #endif
 HDR
 ninja -C out-arm64 gn 2>&1 | tail -3

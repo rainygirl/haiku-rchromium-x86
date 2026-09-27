@@ -328,7 +328,7 @@ edits = [
     # file_path_watcher_stub.cc.
     ("base/BUILD.gn",
      '    if (is_linux || is_chromeos) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "stack_canary_linux.cc",\n        "stack_canary_linux.h",\n      ]\n    }',
-     '    if (is_linux || is_chromeos) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "stack_canary_linux.cc",\n        "stack_canary_linux.h",\n      ]\n    }\n\n    if (is_haiku) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "files/file_path_watcher_stub.cc",\n        "nix/mime_util_xdg.cc",\n        "nix/mime_util_xdg.h",\n        "nix/xdg_util.cc",\n        "nix/xdg_util.h",\n        "haiku_close_watch.cc",\n        "process/memory_haiku.cc",\n        "process/process_haiku.cc",\n        "process/process_handle_haiku.cc",\n        "process/process_metrics_haiku.cc",\n        "system/sys_info_haiku.cc",\n        "threading/platform_thread_haiku.cc",\n      ]\n    }',
+     '    if (is_linux || is_chromeos) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "stack_canary_linux.cc",\n        "stack_canary_linux.h",\n      ]\n    }\n\n    if (is_haiku) {\n      sources += [\n        "base_paths_posix.cc",\n        "debug/elf_reader.cc",\n        "debug/elf_reader.h",\n        "files/file_path_watcher_stub.cc",\n        "nix/mime_util_xdg.cc",\n        "nix/mime_util_xdg.h",\n        "nix/xdg_util.cc",\n        "nix/xdg_util.h",\n        "process/memory_haiku.cc",\n        "process/process_haiku.cc",\n        "process/process_handle_haiku.cc",\n        "process/process_metrics_haiku.cc",\n        "system/sys_info_haiku.cc",\n        "threading/platform_thread_haiku.cc",\n      ]\n    }',
      '"process/process_haiku.cc"'),
     # libjpeg_turbo's assembly decides its own symbol prefix. jsimdext.inc
     # emits bare names when ELF is defined and underscore-prefixed ones
@@ -568,12 +568,6 @@ edits = [
     # Two more webrtc targets want <ifaddrs.h>, which Haiku keeps in
     # headers/bsd along with getifaddrs in libbsd.
     ("third_party/webrtc/rtc_base/BUILD.gn",
-     'rtc_library("rtc_base") {\n',
-     'rtc_library("rtc_base") {\n'
-     '  if (is_haiku) {\n'
-     '    configs += [ "//build/config/haiku:bsd" ]\n'
-     '  }\n'),
-    ("third_party/webrtc/rtc_base/BUILD.gn",
      'rtc_library("threading") {\n',
      'rtc_library("threading") {\n'
      '  if (is_haiku) {\n'
@@ -589,7 +583,10 @@ edits = [
     # gain a second name.
     ("content/shell/BUILD.gn",
      "  if (is_fuchsia) {\n"
-     '    deps += [ "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy" ]\n'
+     "    deps += [\n"
+     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.element:fuchsia.element_hlcpp",\n'
+     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy:fuchsia.ui.policy_hlcpp",\n'
+     "    ]\n"
      "  } else {\n"
      "    deps += [\n"
      '      "//components/crash/content/browser",\n'
@@ -597,7 +594,10 @@ edits = [
      "    ]\n"
      "  }",
      "  if (is_fuchsia) {\n"
-     '    deps += [ "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy" ]\n'
+     "    deps += [\n"
+     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.element:fuchsia.element_hlcpp",\n'
+     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy:fuchsia.ui.policy_hlcpp",\n'
+     "    ]\n"
      "  } else if (!is_haiku) {\n"
      "    deps += [\n"
      '      "//components/crash/content/browser",\n'
@@ -646,19 +646,19 @@ edits = [
     # libevent: the directory goes on this target's include path and no
     # further.
     ("third_party/webrtc/rtc_base/BUILD.gn",
-     'rtc_library("net_helpers") {\n  sources = [',
+     'rtc_library("net_helpers") {\n  visibility = [ "*" ]',
      'rtc_library("net_helpers") {\n'
      '  if (is_haiku) {\n'
      '    configs += [ "//build/config/haiku:bsd" ]\n'
      '  }\n'
-     '  sources = ['),
+     '  visibility = [ "*" ]'),
     # libevent is the one target that needs Haiku's BSD headers, for
     # sys/queue.h. It gets them through a config rather than through the
     # toolchain's global flags, because headers/bsd also carries a
     # sys/param.h defining ALIGN(p) -- and dav1d defines ALIGN(ll, a).
     ("third_party/libevent/BUILD.gn",
-     '    include_dirs = [ "haiku" ]',
-     '    include_dirs = [ "haiku" ]\n'
+     '    include_dirs += [ "haiku" ]',
+     '    include_dirs += [ "haiku" ]\n'
      '    configs += [ "//build/config/haiku:bsd" ]'),
     # The crash reporter is the last thing dragging breakpad's Linux client
     # into the build, through crash_key_lib. Chromium already has the switch

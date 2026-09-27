@@ -49,14 +49,14 @@ for name in ("config.h", "event-config.h"):
 # And teach BUILD.gn to use it. Haiku takes the poll backend.
 build = os.path.join(lib, "BUILD.gn")
 s = open(build).read()
-if 'include_dirs = [ "haiku" ]' not in s:
+if 'include_dirs += [ "haiku" ]' not in s:
     old = '''  } else if (is_linux || is_chromeos) {
     sources += [
       "epoll.c",
       "linux/config.h",
       "linux/event-config.h",
     ]
-    include_dirs = [ "linux" ]'''
+    include_dirs += [ "linux" ]'''
     new = '''  } else if (is_haiku) {
     # No epoll on Haiku. poll.c is already in the common source list above,
     # so adding it here makes gn refuse the target: "generates two object
@@ -65,14 +65,14 @@ if 'include_dirs = [ "haiku" ]' not in s:
       "haiku/config.h",
       "haiku/event-config.h",
     ]
-    include_dirs = [ "haiku" ]
+    include_dirs += [ "haiku" ]
   } else if (is_linux || is_chromeos) {
     sources += [
       "epoll.c",
       "linux/config.h",
       "linux/event-config.h",
     ]
-    include_dirs = [ "linux" ]'''
+    include_dirs += [ "linux" ]'''
     assert old in s, "libevent BUILD.gn does not look as expected"
     open(build, "w").write(s.replace(old, new, 1))
     print("  patched third_party/libevent/BUILD.gn")

@@ -678,7 +678,8 @@ edits = [
     # The X11 clipboard MIME names are used by the Ozone clipboard code on
     # every Ozone platform, not only the ones that declare them.
     ("ui/base/clipboard/clipboard_constants.h",
-     "// Linux-specific MIME type constants (also used in Fuchsia).\n"
+     "// ----- LINUX & CHROMEOS & FUCHSIA MIME TYPES -----\n"
+     "\n"
      "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)",
      "// Linux-specific MIME type constants (also used in Fuchsia and Haiku).\n"
      "#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
@@ -822,7 +823,8 @@ edits = [
     # position Linux, ChromeOS and Fuchsia are in -- they use Chromium's
     # built-in verifier, and this function is not defined for them at all.
     ("net/cert/cert_verify_proc.cc",
-     "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS))",
+     "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
+     "      BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(CHROME_ROOT_STORE_ONLY))",
      "#if !(BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
      "      BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU))"),
 
@@ -843,32 +845,6 @@ edits = [
      '#include "base/containers/contains.h"\n'
      '#include "build/build_config.h"'),
 
-    # ... and the header PLOG is in. scoped_file.cc includes base/check.h,
-    # which has PCHECK but not PLOG.
-    ("base/files/scoped_file.cc",
-     '#include "base/check.h"\n'
-     '#include "build/build_config.h"',
-     '#include "base/check.h"\n'
-     '#include "base/logging.h"\n'
-     '#include "build/build_config.h"\n'
-     "\n"
-     "#if defined(__HAIKU__)\n"
-     "#include <OS.h>\n"
-     "#include <image.h>\n"
-     "\n"
-     "#include <ostream>\n"
-     "#endif"),
-
-    # Who puts a 0 in a ScopedFDPair. The close() failure above reported
-    # fd 0 -- not a socket, not a double close of something real: fd 0 was
-    # never open in this process, so somebody used 0 where -1 means
-    # invalid. __builtin_return_address(0) in Free() named
-    # ScopedFDPair::operator=, which is where the old value is destroyed,
-    # so the 0 was put there earlier.
-    #
-    # ScopedFDPair is out of line in its own translation unit, so giving
-    # its constructor and its move assignment real bodies makes
-    # __builtin_return_address(0) the actual caller. Diagnostic; it comes
     # out once the owner is known.
     ("base/memory/platform_shared_memory_handle.cc",
      "ScopedFDPair& ScopedFDPair::operator=(ScopedFDPair&&) = default;",
@@ -934,153 +910,6 @@ edits = [
     # What the standard descriptors look like when the image loads. The
     # first close(0) this port sees already fails, and there is no
     # successful one before it, so either something closed stdin without
-    # going through ScopedFD or it was never open. A program launched the
-    # same way from the same shell has 0, 1 and 2 open and gets fd 4 for a
-    # new file, so the answer has to come from inside this binary.
-    ("base/files/scoped_file.cc",
-     "namespace base {\n"
-     "namespace internal {",
-     "#if defined(__HAIKU__)\n"
-     "namespace {\n"
-     "struct HaikuStdioProbe {\n"
-     "  HaikuStdioProbe() {\n"
-     "    fprintf(stderr,\n"
-     '            "[RCH] image load: fd0=%s fd1=%s fd2=%s\\n",\n'
-     '            fcntl(0, F_GETFD) != -1 ? "open" : "closed",\n'
-     '            fcntl(1, F_GETFD) != -1 ? "open" : "closed",\n'
-     '            fcntl(2, F_GETFD) != -1 ? "open" : "closed");\n'
-     "  }\n"
-     "};\n"
-     "HaikuStdioProbe g_haiku_stdio_probe;\n"
-     "}  // namespace\n"
-     "#endif\n"
-     "\n"
-     "namespace base {\n"
-     "namespace internal {"),
-    ("base/files/scoped_file.cc",
-     "#if defined(__HAIKU__)\n"
-     "#include <OS.h>\n"
-     "#include <image.h>",
-     "#if defined(__HAIKU__)\n"
-     "#include <OS.h>\n"
-     "#include <fcntl.h>\n"
-     "#include <image.h>\n"
-     "#include <stdio.h>"),
-
-    # Where SocketPosix gets a socket_fd_ of 0. Its constructor sets
-    # kInvalidSocket, sockets and files share one descriptor space here
-    # (measured: socket() gives 4 and 5 while 0, 1 and 2 are open), and yet
-    # StopWatchingAndCleanUp closed fd 0 while stdin was still open. So
-    # either a caller handed it 0 or the field was not what the object
-    # thought. Logging every assignment of a descriptor of 2 or less, and
-    # the close, tells the two apart.
-    ("net/socket/socket_posix.cc",
-     '#include "net/socket/socket_posix.h"',
-     '#include "net/socket/socket_posix.h"\n'
-     "\n"
-     "#if defined(__HAIKU__)\n"
-     'extern "C" void RchNoteFd(const char* what, int fd, const void* ra);\n'
-     "#endif"),
-    ("net/socket/socket_posix.cc",
-     "  if (socket_fd_ < 0) {\n"
-     '    PLOG(ERROR) << "CreatePlatformSocket() failed";',
-     "#if defined(__HAIKU__)\n"
-     "  if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
-     '    RchNoteFd("socket() gave", socket_fd_, __builtin_return_address(0));\n'
-     "#endif\n"
-     "  if (socket_fd_ < 0) {\n"
-     '    PLOG(ERROR) << "CreatePlatformSocket() failed";'),
-    ("net/socket/socket_posix.cc",
-     "  socket_fd_ = socket;\n"
-     "\n"
-     "  if (!base::SetNonBlocking(socket_fd_)) {",
-     "  socket_fd_ = socket;\n"
-     "#if defined(__HAIKU__)\n"
-     "  if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
-     '    RchNoteFd("adopt", socket_fd_, __builtin_return_address(0));\n'
-     "#endif\n"
-     "\n"
-     "  if (!base::SetNonBlocking(socket_fd_)) {"),
-    ("net/socket/socket_posix.cc",
-     "  if (close_socket) {\n"
-     "    if (socket_fd_ != kInvalidSocket) {",
-     "  if (close_socket) {\n"
-     "#if defined(__HAIKU__)\n"
-     "    if (socket_fd_ >= 0 && socket_fd_ <= 2)\n"
-     '      RchNoteFd("about to close", socket_fd_,\n'
-     "                __builtin_return_address(0));\n"
-     "#endif\n"
-     "    if (socket_fd_ != kInvalidSocket) {"),
-    ("net/socket/socket_posix.cc",
-     "  if (new_socket < 0)\n"
-     "    return MapAcceptError(errno);",
-     "  if (new_socket < 0)\n"
-     "    return MapAcceptError(errno);\n"
-     "#if defined(__HAIKU__)\n"
-     "  if (new_socket <= 2)\n"
-     '    RchNoteFd("accept gave", new_socket, __builtin_return_address(0));\n'
-     "#endif"),
-
-    # close() of an fd that is not open. x.com brought the browser down with
-    #
-    #   FATAL:scoped_file.cc(43) Check failed: 0 == ret.
-    #   Bad file descriptor (-2147459072)
-    #
-    # and -2147459072 is B_FILE_ERROR, which Haiku defines EBADF to be --
-    # compiled and printed on the machine rather than read off a header.
-    # So this is not the tolerance case the block above handles. Chromium
-    # keeps EBADF fatal on purpose: it means the descriptor was not closed,
-    # and something else will close that number later believing it owns it.
-    # It is intermittent, which makes it a race, which makes it worse.
-    #
-    # To find the owner: Free() is its own translation unit and this build
-    # has no LTO, so __builtin_return_address(0) is inside whatever
-    # ScopedGeneric destructor or reset() was inlined into the caller --
-    # the code that destroyed this descriptor. No frame pointers needed,
-    # which matters because V8 and the rest are built -fomit-frame-pointer
-    # and that is what made the crash report useless.
-    #
-    # The address is printed relative to the image, because the binary is a
-    # PIE and addr2line wants a file address.
-    ("base/files/scoped_file.cc",
-     "  PCHECK(0 == ret);\n"
-     "}",
-     "#if BUILDFLAG(IS_HAIKU)\n"
-     "  // fd 0, 1 and 2 are logged whether the close succeeded or not:\n"
-     "  // the first close of stdin is the bug and the rest is fallout.\n"
-     "  if (ret != 0 || fd <= 2) {\n"
-     "    static addr_t text_base = 0;\n"
-     "    if (text_base == 0) {\n"
-     "      image_info info;\n"
-     "      int32 cookie = 0;\n"
-     "      while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {\n"
-     "        if (info.type == B_APP_IMAGE) {\n"
-     "          text_base = (addr_t)info.text;\n"
-     "          break;\n"
-     "        }\n"
-     "      }\n"
-     "    }\n"
-     "    addr_t ra = (addr_t)__builtin_return_address(0);\n"
-     '    PLOG(ERROR) << "HAIKU: close(" << fd << ") "\n'
-     '                << (ret == 0 ? "ok" : "FAILED") << " from 0x" << std::hex\n'
-     "                << (unsigned long)(ra - text_base) << std::dec\n"
-     '                << " (image-relative)";\n'
-     "    ret = 0;\n"
-     "  }\n"
-     "#endif\n"
-     "\n"
-     "  PCHECK(0 == ret);\n"
-     "}"),
-
-    # Show the window. The browser came up, Ozone built a HaikuWindow,
-    # published the widget and sized the canvas -- and nothing appeared on
-    # screen. HaikuWindow::Show() was never called: grep the run log and it
-    # is not there, and the fprintf is the first line of the function.
-    #
-    # ShellPlatformDataAura::ShowWindow() is what would call it, and in 108
-    # it is declared, defined and called from nowhere. Dead code upstream.
-    # The aura delegate is the path taken when toolkit_views is off, which
-    # upstream is castos, where something outside the browser puts windows
     # on the screen. Haiku has no such thing, so content_shell has to ask.
     ("content/shell/browser/shell_platform_delegate_aura.cc",
      "  platform_->aura->ResizeWindow(initial_size);\n"
@@ -1184,8 +1013,7 @@ edits = [
 
     # ... and the include the definition needs.
     ("net/cert/cert_verify_proc.cc",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
-     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n"
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
      '#include "net/cert/cert_verify_proc_builtin.h"',
      "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
      "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED) || BUILDFLAG(IS_HAIKU)\n"
@@ -1201,13 +1029,11 @@ edits = [
      "  // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore."),
     # and the caller picks it.
     ("net/cert/cert_verifier.cc",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
-     "    verify_proc =\n"
-     "        CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher));",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n"
+     "    return CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher),",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \\\n"
      "    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_HAIKU)\n"
-     "    verify_proc =\n"
-     "        CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher));"),
+     "    return CertVerifyProc::CreateBuiltinVerifyProc(std::move(cert_net_fetcher),"),
     # The trust store the built-in verifier reads. Everything the generic
     # file does not name falls into its #else, which is a store with no
     # anchors in it. Haiku has its own file; keep it out of that #else.
@@ -1337,14 +1163,6 @@ edits = [
      "  bool valid_;\n"
      "};\n"
      "#endif  // defined(USE_EGL)"),
-    # The same guard as in base/files/file.h, one file over: the systems
-    # whose plain stat() is already the large-file one. Haiku is another.
-    ("base/files/file_posix.cc",
-     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
-     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)",
-     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
-     "    BUILDFLAG(IS_HAIKU) || \\\n"
-     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)"),
     # Closes the #if opened above the mallinfo() body. Without it the file
     # ends inside a conditional -- "unterminated #if" -- and every member
     # definition after this function lands outside its namespace.
@@ -1658,15 +1476,6 @@ edits = [
      "using MessagePumpForUI = MessagePumpLibevent;"),
 
     # stat_wrapper_t is "struct stat64" on any POSIX that is not one of the
-    # listed exceptions. Haiku has no stat64 and needs none: its off_t is
-    # 64-bit and struct stat is the large-file struct. It joins the BSDs.
-    ("base/files/file.h",
-     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
-     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)",
-     "#if BUILDFLAG(IS_BSD) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_NACL) || \\\n"
-     "    BUILDFLAG(IS_HAIKU) || \\\n"
-     "    BUILDFLAG(IS_FUCHSIA) || (BUILDFLAG(IS_ANDROID) && __ANDROID_API__ < 21)"),
-
     # The third copy of export_template.h, this one webrtc's, failing the
     # same self-test under gcc 13 for the same reason.
     ("third_party/webrtc/rtc_base/system/rtc_export_template.h",
@@ -1938,10 +1747,10 @@ edits = [
     # undefined at link time -- the Haiku answer goes in at the top of the
     # body and the rest stays where it is.
     ("v8/src/base/platform/platform-posix.cc",
-     "Stack::StackSlot Stack::GetStackStart() {\n"
+     "Stack::StackSlot Stack::ObtainCurrentThreadStackStart() {\n"
      "  pthread_attr_t attr;\n"
      "  int error = pthread_getattr_np(pthread_self(), &attr);",
-     "Stack::StackSlot Stack::GetStackStart() {\n"
+     "Stack::StackSlot Stack::ObtainCurrentThreadStackStart() {\n"
      "#if defined(V8_OS_HAIKU)\n"
      "  thread_info info;\n"
      "  if (get_thread_info(find_thread(nullptr), &info) != B_OK)\n"
