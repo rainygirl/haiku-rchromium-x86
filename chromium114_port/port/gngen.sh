@@ -92,8 +92,8 @@ GN=tools/gn/out-arm64/gn
   # fine for a test binary and wrong for a browser: x.com decides what to
   # serve from the version, and 999 is not a version any site has heard of.
   # Tell the truth. These are declare_args, so no source patch is needed.
-  content_shell_version = "108.0.5359.124"
-  content_shell_major_version = "108"
+  content_shell_version = "114.0.5735.199"
+  content_shell_major_version = "114"
   use_gold = false
   use_lld = false
   treat_warnings_as_errors = false

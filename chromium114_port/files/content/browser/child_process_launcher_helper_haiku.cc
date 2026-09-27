@@ -1,15 +1,16 @@
 // Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+// The Linux file, minus the two things Haiku has not got: the zygote and the
+// namespace sandbox. What is left is the path Linux already takes under
+// --no-zygote -- a plain fork and exec through base::LaunchProcess.
 //
-// child_process_launcher_helper_linux.cc with the zygote taken out. Half of
-// that file is the fork-server path and the namespace sandbox that goes with
-// it; Haiku has neither, so every launch here is the plain fork-and-exec the
-// Linux file falls back to when --no-zygote is passed.
+// No sandbox either. The renderer runs with the same rights as the browser.
 //
-// No sandbox either. The renderer runs with the same rights as the browser,
-// which is worth saying plainly: this port has no process isolation of the
-// kind Chromium relies on elsewhere.
+// 108 -> 114: LaunchOptions is passed by pointer now, not by reference, and
+// a null pointer means "launching through the zygote". There is no zygote
+// here, so it is never null and IsUsingLaunchOptions() is always true.
 
 #include "base/command_line.h"
 #include "base/path_service.h"
@@ -21,6 +22,7 @@
 #include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
@@ -29,8 +31,8 @@ namespace content {
 namespace internal {
 
 absl::optional<mojo::NamedPlatformChannel>
-ChildProcessLauncherHelper::CreateNamedPlatformChannelOnClientThread() {
-  DCHECK(client_task_runner_->RunsTasksInCurrentSequence());
+ChildProcessLauncherHelper::CreateNamedPlatformChannelOnLauncherThread() {
+  DCHECK(CurrentlyOnProcessLauncherTaskRunner());
   return absl::nullopt;
 }
 
@@ -46,34 +48,30 @@ ChildProcessLauncherHelper::GetFilesToMap() {
       file_data_->files_to_preload, GetProcessType(), command_line());
 }
 
+bool ChildProcessLauncherHelper::IsUsingLaunchOptions() {
+  return true;
+}
+
 bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
     PosixFileDescriptorInfo& files_to_register,
     base::LaunchOptions* options) {
+  DCHECK(options);
   options->fds_to_remap = files_to_register.GetMappingWithIDAdjustment(
       base::GlobalDescriptors::kBaseDescriptor);
-
-  // The Linux file adds the sandbox host's socket for renderers here. There
-  // is no sandbox host on Haiku.
-
-  for (const auto& remapped_fd : file_data_->additional_remapped_fds) {
-    options->fds_to_remap.emplace_back(remapped_fd.second.get(),
-                                       remapped_fd.first);
-  }
-
   options->environment = delegate_->GetEnvironment();
-
   return true;
 }
 
 ChildProcessLauncherHelper::Process
 ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
-    const base::LaunchOptions& options,
+    const base::LaunchOptions* options,
     std::unique_ptr<FileMappedForLaunch> files_to_register,
     bool* is_synchronous_launch,
     int* launch_result) {
   *is_synchronous_launch = true;
+  DCHECK(options);
   Process process;
-  process.process = base::LaunchProcess(*command_line(), options);
+  process.process = base::LaunchProcess(*command_line(), *options);
   *launch_result = process.process.IsValid() ? LAUNCH_RESULT_SUCCESS
                                              : LAUNCH_RESULT_FAILURE;
   return process;
@@ -81,7 +79,10 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
 
 void ChildProcessLauncherHelper::AfterLaunchOnLauncherThread(
     const ChildProcessLauncherHelper::Process& process,
-    const base::LaunchOptions& options) {}
+    const base::LaunchOptions* options) {
+  // Reset any FDs still held open.
+  file_data_.reset();
+}
 
 ChildProcessTerminationInfo ChildProcessLauncherHelper::GetTerminationInfo(
     const ChildProcessLauncherHelper::Process& process,
@@ -108,20 +109,18 @@ void ChildProcessLauncherHelper::ForceNormalProcessTerminationSync(
     ChildProcessLauncherHelper::Process process) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
   process.process.Terminate(RESULT_CODE_NORMAL_EXIT, false);
-  // On POSIX the child still has to be reaped.
+  // On POSIX, we must additionally reap the child.
   base::EnsureProcessTerminated(std::move(process.process));
 }
 
-void ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread(
+void ChildProcessLauncherHelper::SetProcessBackgroundedOnLauncherThread(
     base::Process process,
-    const ChildProcessLauncherPriority& priority) {
+    bool is_background) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
-  // Process::CanBackgroundProcesses() is false on Haiku -- there is no way to
-  // move a whole team between priority bands -- so this is a no-op rather
-  // than a call that would quietly fail.
+  if (process.CanBackgroundProcesses())
+    process.SetProcessBackgrounded(is_background);
 }
 
-// static
 base::File OpenFileToShare(const base::FilePath& path,
                            base::MemoryMappedFile::Region* region) {
   base::FilePath exe_dir;

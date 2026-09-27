@@ -1,7 +1,7 @@
 #ifndef RCHROMIUM_HAIKU_BEAPI_LOOPER_H_
 #define RCHROMIUM_HAIKU_BEAPI_LOOPER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
 class BLooper;
 

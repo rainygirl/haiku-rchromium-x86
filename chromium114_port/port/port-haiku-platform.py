@@ -1098,6 +1098,8 @@ edits = [
      "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
      "  pthread_attr_t attr;",
      "#if BUILDFLAG(IS_HAIKU)\n"
+     "#include <OS.h>\n"
+     "\n"
      "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
      "  thread_info info;\n"
      "  if (get_thread_info(find_thread(nullptr), &info) == B_OK)\n"
@@ -1107,6 +1109,49 @@ edits = [
      "#elif !BUILDFLAG(IS_LINUX)\n"
      "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
      "  pthread_attr_t attr;"),
+
+    # CPU architecture for the user agent. 114 ends the chain in
+    # "#error Unsupported platform" and Haiku is not in it. The POSIX arm
+    # just below reads the same thing out of BuildCpuInfo(), so Haiku goes
+    # with Fuchsia rather than getting a branch of its own.
+    ("content/common/user_agent.cc",
+     "#elif BUILDFLAG(IS_FUCHSIA)\n"
+     "  std::string cpu_arch = base::SysInfo::ProcessCPUArchitecture();",
+     "#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_HAIKU)\n"
+     "  std::string cpu_arch = base::SysInfo::ProcessCPUArchitecture();"),
+
+    # ... and the bitness, which Haiku answers the POSIX way.
+    ("content/common/user_agent.cc",
+     "#elif BUILDFLAG(IS_POSIX)\n"
+     '  return base::Contains(BuildCpuInfo(), "64") ? "64" : "32";',
+     "#elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_HAIKU)\n"
+     '  return base::Contains(BuildCpuInfo(), "64") ? "64" : "32";'),
+
+    # Automatic gain control. This chain has a case per platform and ends
+    # in an #error, so a platform with no audio capture still has to pick
+    # one. The mobile configuration is the conservative choice: gain
+    # controller 2, fixed digital, nothing adaptive.
+    ("media/webrtc/helpers.cc",
+     "#elif BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)\n"
+     "  // Configure AGC for mobile.",
+     "#elif BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  // Configure AGC for mobile."),
+
+    # webrtc asks the kernel to timestamp datagrams. Haiku has neither
+    # socket option, and the caller treats a missing timestamp as "now",
+    # which is what it would get anyway.
+    ("third_party/webrtc/rtc_base/physical_socket_server.cc",
+     "#if defined(WEBRTC_POSIX)\n",
+     "#if defined(__HAIKU__)\n"
+     "#if !defined(SO_TIMESTAMP)\n"
+     "#define SO_TIMESTAMP 0\n"
+     "#endif\n"
+     "#if !defined(SCM_TIMESTAMP)\n"
+     "#define SCM_TIMESTAMP 0\n"
+     "#endif\n"
+     "#endif\n"
+     "\n"
+     "#if defined(WEBRTC_POSIX)\n"),
 
     # MSG_CONFIRM is a Linux flag telling the kernel the path is still
     # valid, so it need not re-ARP. Apple is already excluded; Haiku has no

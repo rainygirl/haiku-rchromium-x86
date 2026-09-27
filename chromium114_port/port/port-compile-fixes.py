@@ -8,6 +8,16 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # The same missing include as ref_counted.h, in the container headers:
+    # flat_tree.h and id_map.h use std::numeric_limits and include neither
+    # <limits> nor anything that brings it in under libstdc++.
+    ("base/containers/flat_tree.h",
+     "#include <algorithm>",
+     "#include <algorithm>\n#include <limits>"),
+    ("base/containers/id_map.h",
+     "#include <memory>",
+     "#include <limits>\n#include <memory>"),
+
     # ref_counted.h uses std::numeric_limits<int>::max() and includes
     # <utility> but not <limits>. libstdc++ happens to drag <limits> in
     # through another header for clang builds and does not here, so 82
