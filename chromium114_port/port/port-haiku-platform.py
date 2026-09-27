@@ -175,11 +175,14 @@ edits = [
      "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)",
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_WASM)",
      "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || defined(__HAIKU__)"),
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_WASM) || \\\n"
+     "    defined(__HAIKU__)"),
 
     # minizip calls fopen64/ftello64/fseeko64 and each platform without them
     # aliases them to the plain calls. Haiku's off_t is 64-bit, so the plain
@@ -1250,12 +1253,15 @@ edits = [
     ("third_party/perfetto/src/tracing/ipc/posix_shared_memory.h",
      "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) || \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA)",
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_WASM)",
      "#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n"
      "    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) || \\\n"
-     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || defined(__HAIKU__)"),
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n"
+     "    PERFETTO_BUILDFLAG(PERFETTO_OS_WASM) || \\\n"
+     "    defined(__HAIKU__)"),
 
     # The clock snapshot lists CLOCK_BOOTTIME, CLOCK_REALTIME_COARSE,
     # CLOCK_MONOTONIC_COARSE and CLOCK_MONOTONIC_RAW. Haiku has none of the

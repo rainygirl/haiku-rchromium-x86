@@ -279,6 +279,41 @@ edits = [
      "  }\n",
      "if (is_haiku) {\n    sources += libangle_gpu_info_util_linux_sources"),
 
+    # The sampling profiler's signal-based stack copier reads linux/futex.h
+    # and sys/syscall.h and suspends a thread with a signal; the thread
+    # delegate that goes with it reads RegisterContext::gregs. None of that
+    # exists here. 108 kept these out through an OS list that 114 has
+    # rewritten, so take the four files back out by name -- they are in
+    # sources at this point, which is what gn needs for a subtraction.
+    ("base/BUILD.gn",
+     '        "profiler/thread_delegate_posix.h",\n'
+     "      ]\n"
+     "    }\n",
+     '        "profiler/thread_delegate_posix.h",\n'
+     "      ]\n"
+     "    }\n"
+     "\n"
+     "    if (is_haiku) {\n"
+     "      sources -= [\n"
+     '        "profiler/stack_copier_signal.cc",\n'
+     '        "profiler/stack_copier_signal.h",\n'
+     '        "profiler/thread_delegate_posix.cc",\n'
+     '        "profiler/thread_delegate_posix.h",\n'
+     "      ]\n"
+     "    }\n",
+     '"profiler/thread_delegate_posix.cc",\n      ]\n    }'),
+
+    # webrtc's network.cc and ifaddrs_converter.cc want <ifaddrs.h>, which
+    # Haiku keeps in headers/bsd with getifaddrs in libbsd. In 108 this
+    # rode along on the rtc_base target; 114 split that up and network is
+    # where these files live now.
+    ("third_party/webrtc/rtc_base/BUILD.gn",
+     'rtc_library("network") {\n',
+     'rtc_library("network") {\n'
+     "  if (is_haiku) {\n"
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     "  }\n"),
+
     # skia's default font manager. Haiku builds the same bundled fontconfig
     # Linux does, so the same file answers.
     ("skia/BUILD.gn",

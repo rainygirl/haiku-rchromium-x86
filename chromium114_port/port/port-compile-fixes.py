@@ -8,6 +8,21 @@ import sys
 
 root = sys.argv[1]
 edits = [
+    # ref_counted.h uses std::numeric_limits<int>::max() and includes
+    # <utility> but not <limits>. libstdc++ happens to drag <limits> in
+    # through another header for clang builds and does not here, so 82
+    # targets in base alone fail on one missing include. Chromium builds
+    # with clang upstream; this is the compiler difference again, not the
+    # platform.
+    ("base/memory/ref_counted.h",
+     "#include <stddef.h>\n"
+     "\n"
+     "#include <utility>",
+     "#include <stddef.h>\n"
+     "\n"
+     "#include <limits>\n"
+     "#include <utility>"),
+
     # ffmpeg's x86 shift helpers pass (uint8_t)(-s) as an "ic" operand,
     # and when s is a known constant gcc folds it and prints the signed
     # value -- shrl with a negative immediate. The assembler validates a
