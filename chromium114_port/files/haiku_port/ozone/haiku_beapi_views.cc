@@ -19,6 +19,8 @@
 
 #include "haiku_window.h"
 
+#include <stdlib.h>
+
 #include <AppDefs.h>
 #include <Clipboard.h>
 #include <ControlLook.h>
@@ -67,10 +69,23 @@
 namespace ui {
 namespace {
 
+// The window's name, which is the application's name and not the page's.
+// RCH_APP_NAME is how an installed web app says what it is called: R Twitter's
+// launcher sets it, and then every window R Twitter opens says R Twitter.
+//
+// It has to be answered here, in the constructor, rather than left to
+// SetTitle(). content_shell with toolkit_views off has no browser chrome and
+// never pushes the page title down to the platform window, so whatever name
+// the BWindow is born with is the name it keeps.
+const char* WindowTitle() {
+  const char* name = getenv("RCH_APP_NAME");
+  return (name != nullptr && name[0] != '\0') ? name : "R Chromium";
+}
+
 class BrowserNativeWindow : public BWindow {
  public:
   explicit BrowserNativeWindow(BRect frame)
-      : BWindow(frame, "R Chromium", B_TITLED_WINDOW,
+      : BWindow(frame, WindowTitle(), B_TITLED_WINDOW,
                 B_ASYNCHRONOUS_CONTROLS) {}
 
   bool QuitRequested() override {

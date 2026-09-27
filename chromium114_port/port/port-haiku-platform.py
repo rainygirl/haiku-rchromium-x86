@@ -1908,6 +1908,51 @@ edits = [
      "}\n"
      "\n"
      "#endif  // !defined(V8_OS_FREEBSD) && !defined(V8_OS_DARWIN) &&"),
+
+    # A persistent profile.
+    #
+    # content_shell keeps the network context entirely in memory: it leaves
+    # file_paths and http_cache_directory unset, so there is no cookie file
+    # and no disk cache. That is right for a test binary and wrong for a
+    # browser somebody uses -- a sign-in lasts exactly as long as the window,
+    # and every launch refetches and recompiles x.com's bundle, which on a
+    # 1.33 GHz Atom is most of the minute the page takes to appear.
+    #
+    # --data-path already says where the profile lives; this is only the part
+    # that puts the network service's own files in it. The 87 port made the
+    # same change against 87's flatter NetworkContextParams (cookie_path and
+    # http_cache_path were fields on the params themselves); in 114 the file
+    # names moved into a NetworkContextFilePaths struct, which has to be
+    # created before it can be filled.
+    #
+    # restore_old_session_cookies and persist_session_cookies are not
+    # optional: without them the cookie file exists and a session cookie --
+    # which is what a login is until it is renewed -- is still dropped on
+    # exit. Measured on 87, and the same two flags are still there in 114.
+    ("content/shell/browser/shell_content_browser_client.cc",
+     "  if (!exempt_header.empty())\n"
+     "    context_params->cors_exempt_header_list.push_back(exempt_header);\n"
+     "}",
+     "  if (!exempt_header.empty())\n"
+     "    context_params->cors_exempt_header_list.push_back(exempt_header);\n"
+     "\n"
+     "  base::FilePath profile = context->GetPath();\n"
+     "  if (!context->IsOffTheRecord() && !profile.empty()) {\n"
+     "    context_params->file_paths =\n"
+     "        network::mojom::NetworkContextFilePaths::New();\n"
+     "    context_params->file_paths->data_directory =\n"
+     "        profile.Append(FILE_PATH_LITERAL(\"Network\"));\n"
+     "    context_params->file_paths->cookie_database_name =\n"
+     "        base::FilePath(FILE_PATH_LITERAL(\"Cookies\"));\n"
+     "    context_params->file_paths->http_server_properties_file_name =\n"
+     "        base::FilePath(FILE_PATH_LITERAL(\"Network Persistent State\"));\n"
+     "    context_params->restore_old_session_cookies = true;\n"
+     "    context_params->persist_session_cookies = true;\n"
+     "    context_params->http_cache_directory =\n"
+     "        profile.Append(FILE_PATH_LITERAL(\"Cache\"));\n"
+     "  }\n"
+     "}",
+     "context_params->file_paths->cookie_database_name"),
 ]
 
 includes = [

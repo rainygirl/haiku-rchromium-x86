@@ -37,10 +37,17 @@ line this port stops at while it is still a gcc build.
 | | |
 | --- | --- |
 | `port/port-target-guards.py` | 66 gn edits |
-| `port/port-haiku-platform.py` | 162 source edits |
+| `port/port-haiku-platform.py` | 163 source edits |
 | `port/port-compile-fixes.py` | 8 edits |
 | `port/port-os-detection.py` | 6 edits |
+| `port/port-fd0-workaround.py` | the close(0) workaround, written after 114 |
 | `files/` | 39 whole files this port adds |
+
+`port-fd0-workaround.py` is new and is not a carry-over: the block it installs
+was applied by hand during the fd-0 hunt on 108 and never written down, so a
+fresh tree did not get it. Run it after `port-haiku-platform.py`; it replaces
+its own block rather than editing around one, so it is safe on a tree that
+already has a hand-applied version.
 
 Every edit carries its own "already applied" test and prints
 `PATTERN NOT FOUND` when its anchor is gone, so the first run against 114 is
@@ -72,6 +79,44 @@ And on renku, first try:
 	body     = top-level await works | toSorted: 1,2,3
 	UA       = Mozilla/5.0 (Haiku; Haiku BePC) ... Chrome/114.0.5735.199
 	toSorted = present
+
+## It runs x.com, and R Twitter runs on it (2026-09-28)
+
+Three changes turned the 114 build from an engine that renders x.com into one
+an installed web app can be built on.
+
+**The window's name.** Stock content_shell with `toolkit_views = false` has no
+browser chrome and never pushes a page title down to the platform window, so
+the name a `BWindow` is born with is the name it keeps -- "R Chromium", for
+every app. `haiku_beapi_views.cc` now reads `RCH_APP_NAME` in the constructor,
+and `HaikuWindow::SetTitle()` honours it as well for whatever path might call
+it later. `RCH_NO_TOOLBAR` needs nothing: `AttachBrowserChrome()` is compiled
+but nothing calls it, because its caller lived in the 87 overlay's
+`shell_platform_delegate_aura.cc`.
+
+**A profile on disk.** content_shell leaves the network context entirely in
+memory -- no `file_paths`, no `http_cache_directory` -- so a sign-in lasts
+exactly as long as the window and every launch refetches the bundle. The port
+now fills both from `--data-path`, the way the 87 port filled 87's flatter
+`cookie_path` and `http_cache_path`. In 114 the file names moved into a
+`NetworkContextFilePaths` struct, which has to be created before it can be
+filled, and `restore_old_session_cookies`/`persist_session_cookies` are still
+required or the file exists and session cookies are still dropped on exit.
+
+Verified on renku: set a cookie, wait for the store's ~30 s commit timer, kill
+the browser, start it again -- the cookie is back. (The first attempt killed
+it after 5 s and came back negative, which was the timer, not the store.)
+114 does not force the off-the-record context 87 needs, so `Local Storage`,
+`Session Storage` and `Code Cache` land on disk too, and an 11.9 MB `Cache`
+directory did not crash anything.
+
+**The fd-0 workaround, quietly.** Haiku's `res_ndestroy()` closing fd 0 (see
+`haiku_kernel_patches/K0002`) reaches 114 as it reached 108. It no longer
+breaks a page load: `scoped_file.cc` stops a close of fd 0, 1 or 2 being
+fatal, and with the *stock* system libnetwork 24 of 25 x.com loads finished
+inside 90 s. The one that did not showed zero fd-0 events and no crash, so it
+was not that bug. The probe that found the bug now needs `RCH_FD0_PROBE=1`;
+it used to print several ERROR lines per page load.
 
 The four things that each took days on 108 -- the loader refusing the
 image over DF_STATIC_TLS, the renderer dying on a snapshot built by a

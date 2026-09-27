@@ -1,5 +1,7 @@
 #include "haiku_window.h"
 
+#include <stdlib.h>
+
 #include "haiku_cursor_factory.h"
 
 #include <AppDefs.h>
@@ -238,7 +240,17 @@ void HaikuWindow::SetTopInset(int inset) {
 }
 
 void HaikuWindow::SetTitle(const std::u16string& title) {
-  const std::string utf8 = base::UTF16ToUTF8(title);
+  // RCH_APP_NAME, if the launcher set one, wins over whatever the page calls
+  // itself. An installed web app is one application, and a window that
+  // renames itself as the user moves around inside it does not look like
+  // one. R Twitter is R Twitter on every page of x.com.
+  //
+  // This is the one thing the 87 port did in its own shell delegate that a
+  // stock content_shell still needs to be told.
+  const char* app_name = getenv("RCH_APP_NAME");
+  const std::string utf8 = (app_name != nullptr && app_name[0] != '\0')
+                               ? std::string(app_name)
+                               : base::UTF16ToUTF8(title);
   if (window_ != nullptr && window_->Lock()) {
     window_->SetTitle(utf8.c_str());
     window_->Unlock();
