@@ -25,8 +25,9 @@ namespace internal {
 // because that is the interface, and SetCurrentThreadTypeForPlatform converts.
 //
 // The order here matters: increasing priority, so decreasing nice value.
-const ThreadTypeToNiceValuePair kThreadTypeToNiceValueMap[6] = {
+const ThreadTypeToNiceValuePair kThreadTypeToNiceValueMap[7] = {
     {ThreadType::kBackground, 10},      // B_LOW_PRIORITY
+    {ThreadType::kUtility, 7},
     {ThreadType::kResourceEfficient, 5},
     {ThreadType::kDefault, 0},          // B_NORMAL_PRIORITY
     {ThreadType::kCompositing, -5},

@@ -308,6 +308,12 @@ edits = [
     # rode along on the rtc_base target; 114 split that up and network is
     # where these files live now.
     ("third_party/webrtc/rtc_base/BUILD.gn",
+     'rtc_library("ifaddrs_converter") {\n',
+     'rtc_library("ifaddrs_converter") {\n'
+     "  if (is_haiku) {\n"
+     '    configs += [ "//build/config/haiku:bsd" ]\n'
+     "  }\n"),
+    ("third_party/webrtc/rtc_base/BUILD.gn",
      'rtc_library("network") {\n',
      'rtc_library("network") {\n'
      "  if (is_haiku) {\n"
@@ -617,9 +623,6 @@ edits = [
     # the same cut. Fuchsia already opts out of exactly this, so the guards
     # gain a second name.
     ("content/shell/BUILD.gn",
-     "  if (is_fuchsia) {\n"
-     "    deps += [\n"
-     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.element:fuchsia.element_hlcpp",\n'
      '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy:fuchsia.ui.policy_hlcpp",\n'
      "    ]\n"
      "  } else {\n"
@@ -628,9 +631,6 @@ edits = [
      '      "//components/crash/core/app",\n'
      "    ]\n"
      "  }",
-     "  if (is_fuchsia) {\n"
-     "    deps += [\n"
-     '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.element:fuchsia.element_hlcpp",\n'
      '      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.policy:fuchsia.ui.policy_hlcpp",\n'
      "    ]\n"
      "  } else if (!is_haiku) {\n"

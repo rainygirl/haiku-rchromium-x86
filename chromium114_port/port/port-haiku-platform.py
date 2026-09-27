@@ -1075,6 +1075,39 @@ edits = [
      "#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC\n"
      "#endif"),
 
+    # sys/syscall.h. Haiku has no syscall table to name, and nothing in
+    # this file that Haiku compiles reaches for one -- the code that does
+    # is behind HAVE_BACKTRACE, which wants __GLIBC__.
+    ("base/debug/stack_trace_posix.cc",
+     "#include <sys/stat.h>\n"
+     "#include <sys/syscall.h>\n"
+     "#include <sys/types.h>",
+     "#include <sys/stat.h>\n"
+     "#if !defined(__HAIKU__)\n"
+     "#include <sys/syscall.h>\n"
+     "#endif\n"
+     "#include <sys/types.h>"),
+
+    # Where a thread's stack starts. The generic POSIX answer is
+    # pthread_getattr_np, which Haiku does not have; get_thread_info() does
+    # the same job and is the native way to ask. stack_base is the low
+    # address and stack_end the high one, and this function wants the end
+    # -- the address the stack grows down from.
+    ("base/profiler/stack_base_address_posix.cc",
+     "#if !BUILDFLAG(IS_LINUX)\n"
+     "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
+     "  pthread_attr_t attr;",
+     "#if BUILDFLAG(IS_HAIKU)\n"
+     "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
+     "  thread_info info;\n"
+     "  if (get_thread_info(find_thread(nullptr), &info) == B_OK)\n"
+     "    return reinterpret_cast<uintptr_t>(info.stack_end);\n"
+     "  return 0;\n"
+     "}\n"
+     "#elif !BUILDFLAG(IS_LINUX)\n"
+     "uintptr_t GetThreadStackBaseAddressImpl(pthread_t pthread_id) {\n"
+     "  pthread_attr_t attr;"),
+
     # MSG_CONFIRM is a Linux flag telling the kernel the path is still
     # valid, so it need not re-ARP. Apple is already excluded; Haiku has no
     # such flag and the send works without it.
