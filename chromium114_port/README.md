@@ -107,3 +107,60 @@ The window stays white, so the spinner in the DOM is not reaching the
 screen either. Whether the app is waiting on something or the compositor
 is not presenting is the next thing to find out, and those are different
 problems.
+
+## Three walls on the way to x.com (2026-09-28)
+
+None of them was in this port's own code. All three were Chromium doing
+the right thing everywhere except here, because Haiku was missing from a
+list or getting a default that does not fit.
+
+### 424 requests against a limit of 256
+
+x.com's app fetches a module per route -- 424 of them at once. 247 came
+back `net::ERR_INSUFFICIENT_RESOURCES` and the app sat on its loading
+spinner waiting for code that was never going to arrive. No exception,
+no failed HTTP status: silence.
+
+Haiku starts a team with `RLIMIT_NOFILE` at 256 and allows 8192. Every
+socket is a descriptor. Chromium already raises this, in
+`BrowserMainLoop::PostCreateThreads`, and the comment above the call
+could have been written for this machine -- "the default limit on Apple
+is low (256), so bump it up". The call sits inside
+`#if IS_APPLE || IS_LINUX || IS_CHROMEOS || IS_ANDROID`.
+
+### A null video capture factory
+
+With the modules arriving, the app ran its fingerprinting script and
+asked `navigator.mediaDevices.enumerateDevices()` what cameras exist.
+`CreatePlatformSpecificVideoCaptureDeviceFactory()` ends in
+
+	#else
+	  NOTIMPLEMENTED();
+	  return nullptr;
+
+and `VideoCaptureSystemImpl::GetDeviceInfosAsync()` calls through it
+without checking. iOS answers the same question with the fake factory,
+which reports no devices; "no camera" is true here anyway. Haiku has a
+media_kit with video input, so this is a stub with a real answer behind
+it, not a permanent one.
+
+### A stack that was never big enough
+
+Then the renderer died in `Builtins_IncHandler`, which looks like a V8
+bug and is not one. From the crash report:
+
+	pthread_19057_stack   0x70401000..0x70446000   276 KB
+	faulting esp          0x70405040               16 KB above the bottom
+
+Haiku gives a pthread 256 KB. V8 assumes about 984 KB and lets
+JavaScript recurse until it reaches that. x.com's code is deep enough to
+find the difference. `GetDefaultThreadStackSize()` in this port returned
+0 -- "whatever pthreads gives you" -- under a comment claiming Haiku
+grows it to 16 MB on demand. That is true of the main thread's stack and
+not of a pthread's. It returns 4 MB now.
+
+![x.com renders its login modal](x-com-modal.png)
+
+DOM nodes went 74 -> 290, the crash is gone, and the window shows the
+rounded white card and the spinner instead of nothing. Still a spinner,
+so there is more; but each of these was a layer, and each came off.

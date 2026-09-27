@@ -1154,6 +1154,41 @@ edits = [
      "\n"
      "#if defined(WEBRTC_POSIX)\n"),
 
+    # The file descriptor limit. Haiku starts a team with 256 and allows
+    # 8192, and x.coms app asks for 424 route modules at once -- every one
+    # a socket, every socket a descriptor. 247 of them came back
+    # ERR_INSUFFICIENT_RESOURCES and the app sat on its loading spinner
+    # waiting for modules that were never going to arrive. No exception,
+    # no failed response: just silence.
+    #
+    # Chromium already does this, and the comment above the call describes
+    # the same situation -- "the default limit on Apple is low (256), so
+    # bump it up". Haiku is simply not in the list.
+    ("content/browser/browser_main_loop.cc",
+     "#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_ANDROID)\n"
+     "  // We use quite a few file descriptors for our IPC as well as disk the disk",
+     "#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n"
+     "    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_HAIKU)\n"
+     "  // We use quite a few file descriptors for our IPC as well as disk the disk"),
+
+    # Video capture. Haiku falls off the end of this chain into
+    # NOTIMPLEMENTED() and a null factory, and VideoCaptureSystemImpl::
+    # GetDeviceInfosAsync() calls straight through it -- a segment
+    # violation, which is how x.com killed the browser: its fingerprinting
+    # script asks navigator.mediaDevices.enumerateDevices() what cameras
+    # there are.
+    #
+    # iOS answers the same question with the fake factory, which reports no
+    # devices rather than crashing, and "no camera" is the truth here.
+    # Haiku has a media_kit with video input, so this is a stub to replace
+    # rather than a permanent answer.
+    ("media/capture/video/create_video_capture_device_factory.cc",
+     "#elif BUILDFLAG(IS_IOS)\n"
+     "  return CreateFakeVideoCaptureDeviceFactory();",
+     "#elif BUILDFLAG(IS_IOS) || BUILDFLAG(IS_HAIKU)\n"
+     "  return CreateFakeVideoCaptureDeviceFactory();"),
+
     # MSG_CONFIRM is a Linux flag telling the kernel the path is still
     # valid, so it need not re-ARP. Apple is already excluded; Haiku has no
     # such flag and the send works without it.

@@ -88,9 +88,20 @@ void InitThreading() {}
 void TerminateOnThread() {}
 
 size_t GetDefaultThreadStackSize(const pthread_attr_t& attributes) {
-  // 0 means "whatever pthreads gives you", which on Haiku is 64 KB of user
-  // stack grown on demand up to 16 MB.
-  return 0;
+  // Not 0. Returning 0 means "whatever pthreads gives you", and on Haiku
+  // that is 256 KB -- the stack area for a renderer thread measured
+  // 0x70401000..0x70446000, 276 KB with its guard pages.
+  //
+  // V8 assumes about 984 KB and lets JavaScript recurse until it reaches
+  // that, so x.com walked off the end of a real Haiku stack and the
+  // renderer died in Builtins_IncHandler with the stack pointer 16 KB
+  // above the bottom of its area. The crash looks like a V8 bug and is a
+  // stack that was never big enough.
+  //
+  // 4 MB is below the 8 MB Chromium gets on Linux and well above what V8
+  // wants. It is reserved address space, not committed memory, but a
+  // 32-bit process spawning thirty threads cannot be careless about it.
+  return 4 * 1024 * 1024;
 }
 
 }  // namespace base
