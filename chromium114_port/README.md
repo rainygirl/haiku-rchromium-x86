@@ -162,5 +162,25 @@ not of a pthread's. It returns 4 MB now.
 ![x.com renders its login modal](x-com-modal.png)
 
 DOM nodes went 74 -> 290, the crash is gone, and the window shows the
-rounded white card and the spinner instead of nothing. Still a spinner,
-so there is more; but each of these was a layer, and each came off.
+rounded white card and the spinner instead of nothing.
+
+## x.com renders (2026-09-28)
+
+![x.com's sign-in screen on Haiku](x-com-login.png)
+
+The X mark, "See what's happening", the phone, Google and Apple buttons,
+the email field with its focus ring, Continue, and the terms links. The
+whole sign-in screen.
+
+The spinner was not a fourth wall. DOM nodes went 290 -> 461 while I was
+looking at it, 168 of them inside the dialog, and IndexedDB opened when
+asked. Nothing was stuck: a 1.33 GHz Atom was working through x.com's
+JavaScript, and it needed a few more minutes than I had given it. Worth
+recording, because three real walls in a row makes the fourth pause look
+like another one.
+
+This is what the port was for. The app that Chromium 87 answers with
+
+	SyntaxError: Unexpected reserved word
+
+runs on Haiku x86.
