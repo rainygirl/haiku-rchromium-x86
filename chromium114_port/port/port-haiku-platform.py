@@ -622,26 +622,20 @@ edits = [
     # something odd, this is the first place to look.
     ("content/common/user_agent.cc",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
-     '  return "Fuchsia";\n'
+     '  return "";\n'
      "#elif BUILDFLAG(IS_LINUX)",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
      '  return "";\n'
      "#elif BUILDFLAG(IS_HAIKU)\n"
-     '  return "Haiku; ";\n'
-     "#else\n"
-     "#error Unsupported platform\n"
-     "#endif"),
+     '  return "Haiku; Haiku BePC";\n'
+     "#elif BUILDFLAG(IS_LINUX)"),
     ("content/common/user_agent.cc",
      '#elif BUILDFLAG(IS_LINUX)\n'
      '  return "X11; Linux x86_64";\n'
      "#elif BUILDFLAG(IS_IOS)",
      '#elif BUILDFLAG(IS_LINUX)\n'
      '  return "X11; Linux x86_64";\n'
-     "#elif BUILDFLAG(IS_HAIKU)\n"
-     '  return "Haiku x86";\n'
-     "#else\n"
-     "#error Unsupported platform\n"
-     "#endif"),
+     "#elif BUILDFLAG(IS_IOS)"),
 
     # Enterprise policy wants a machine name to report. There is nothing to
     # report to, and Android already answers with an empty string.
@@ -834,7 +828,8 @@ edits = [
     # ... and the counterpart: the built-in verifier is what Haiku calls
     # instead, so its definition has to exist. USE_NSS_CERTS is off here.
     ("net/cert/cert_verify_proc.cc",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
+     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n"
      "// static\n"
      "scoped_refptr<CertVerifyProc> CertVerifyProc::CreateBuiltinVerifyProc(",
      "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
@@ -1016,16 +1011,18 @@ edits = [
 
     # ... and the include the definition needs.
     ("net/cert/cert_verify_proc.cc",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
+     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n"
      '#include "net/cert/cert_verify_proc_builtin.h"',
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || BUILDFLAG(IS_MAC) || \\\n"
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
      "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED) || BUILDFLAG(IS_HAIKU)\n"
      '#include "net/cert/cert_verify_proc_builtin.h"'),
     # ... and the declaration that goes with it. Opening the definition
     # without the header is a guard opened by half, which this port has
     # done five times already.
     ("net/cert/cert_verify_proc.h",
-     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS)\n"
+     "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
+     "    BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n"
      "  // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore.",
      "#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(USE_NSS_CERTS) || \\\n"
      "    BUILDFLAG(IS_HAIKU)\n"

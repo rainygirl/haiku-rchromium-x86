@@ -12,7 +12,7 @@
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "haiku_beapi_looper.h"
 
 namespace ui {

@@ -51,7 +51,7 @@
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "haiku_beapi_looper.h"
 #include "haiku_browser_chrome.h"
 #include "haiku_event_translation.h"
@@ -453,7 +453,7 @@ class ClipboardChangeWatcher : public BLooper {
  public:
   explicit ClipboardChangeWatcher(base::RepeatingClosure on_changed)
       : BLooper("rchromium clipboard watcher"),
-        ui_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+        ui_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
         on_changed_(std::move(on_changed)) {
     Run();
     if (be_clipboard != nullptr)

@@ -16,7 +16,7 @@
 #include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "haiku_event_translation.h"
 #include "haiku_window_manager.h"
 #include "ui/events/base_event_utils.h"
@@ -55,7 +55,7 @@ HaikuWindow::HaikuWindow(PlatformWindowDelegate* delegate,
   // Wired up on the UI thread, before the window is shown, so the looper never
   // observes a half-initialised sink.
   view_->SetSinks(
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(&HaikuWindow::OnEventFromLooper,
                           weak_factory_.GetWeakPtr()),
       base::BindRepeating(&HaikuWindow::OnBoundsFromLooper,
