@@ -12,8 +12,8 @@
 # content_shell` lists all 101,252 inputs and answers the question once --
 # 33 absent, of which 31 are test fonts and two are these.
 set -e
-SRC="${1:-/build/chromium108}"
-TAG=108.0.5359.124
+SRC="${1:-/build/chromium114}"
+TAG=114.0.5735.199
 BASE="https://chromium.googlesource.com/chromium/src/+/refs/tags/$TAG"
 FILES="
 content/test/data/web_ui_test.test-mojom
@@ -22,6 +22,9 @@ content/test/data/mojo_bindings_web_test.test-mojom
 content/test/data/mojo_bindings_web_test_types.test-mojom
 content/test/data/lite_js_test.mojom
 content/test/data/mojo_web_test_helper_test.mojom
+content/test/data/web_ui_ts_test.test-mojom
+content/test/data/web_ui_ts_test_types.test-mojom
+content/test/data/web_ui_managed_interface_test.test-mojom
 "
 for rel in $FILES; do
     out="$SRC/$rel"
@@ -59,17 +62,31 @@ fi
 # wants them. What they contain does not matter to this port -- nothing here
 # runs the web UI mojo test -- but grit will not build a .pak with a missing
 # input.
-for f in web_ui_mojo_test.html web_ui_mojo_native.html; do
+for f in web_ui_mojo_test.html web_ui_mojo_native.html \
+	web_ui_mojo_ts_test.html web_ui_managed_interface_test.html; do
 	p=$SRC/content/test/data/$f
 	[ -e "$p" ] && continue
 	mkdir -p "$(dirname "$p")"
 	printf '<!doctype html>\n<!-- Placeholder: not in the source tarball. -->\n<html><body></body></html>\n' > "$p"
 	echo "  created placeholder content/test/data/$f"
 done
-for f in web_ui_mojo_test.js web_ui_mojo_native.js; do
+for f in web_ui_mojo_test.js web_ui_mojo_native.js \
+	web_ui_managed_interface_test.js; do
 	p=$SRC/content/test/data/$f
 	[ -e "$p" ] && continue
 	mkdir -p "$(dirname "$p")"
 	printf '// Placeholder: not in the source tarball.\n' > "$p"
 	echo "  created placeholder content/test/data/$f"
+done
+
+
+# 114 adds a TypeScript one to the same set, and the tarball leaves it out
+# for the same reason: it is test data, not browser source. The grd that
+# names it is compiled regardless, so an empty file is enough.
+for f in web_ui_mojo_ts_test.ts; do
+	t="$SRC/content/test/data/$f"
+	if [ ! -f "$t" ]; then
+		printf 'export {};\n' > "$t"
+		echo "  placeholder $f"
+	fi
 done

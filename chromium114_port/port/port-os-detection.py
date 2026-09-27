@@ -20,9 +20,11 @@ edits = [
     # becomes a Mac. That is how SkSemaphore.cpp came to ask for
     # <dispatch/dispatch.h>. Haiku belongs in the unix arm: pthreads,
     # POSIX semaphores, the lot.
-    ("third_party/skia/include/core/SkTypes.h",
+    ("third_party/skia/include/private/base/SkFeatures.h",
+     "          defined(__DragonFly__) || defined(__Fuchsia__) || \\\n"
      "          defined(__GLIBC__) || defined(__GNU__) || defined(__unix__)\n"
      "        #define SK_BUILD_FOR_UNIX",
+     "          defined(__DragonFly__) || defined(__Fuchsia__) || \\\n"
      "          defined(__GLIBC__) || defined(__GNU__) || defined(__unix__) || \\\n"
      "          defined(__HAIKU__)\n"
      "        #define SK_BUILD_FOR_UNIX"),

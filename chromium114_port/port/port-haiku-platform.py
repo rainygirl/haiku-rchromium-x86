@@ -1057,6 +1057,21 @@ edits = [
      "\n"
      "#endif\n"),
 
+    # Haiku has no CLOCK_MONOTONIC_RAW. perfetto reads it in
+    # GetWallTimeRawNs() and in ten other places, all of them wanting "a
+    # monotonic clock nobody has stepped". CLOCK_MONOTONIC is that clock
+    # minus the distinction between adjusted and unadjusted, which matters
+    # to a tracing tool on a machine running NTP and not to this one.
+    ("third_party/perfetto/include/perfetto/base/time.h",
+     '#include "perfetto/base/build_config.h"\n'
+     '#include "perfetto/base/logging.h"',
+     '#include "perfetto/base/build_config.h"\n'
+     '#include "perfetto/base/logging.h"\n'
+     "\n"
+     "#if defined(__HAIKU__) && !defined(CLOCK_MONOTONIC_RAW)\n"
+     "#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC\n"
+     "#endif"),
+
     # MSG_CONFIRM is a Linux flag telling the kernel the path is still
     # valid, so it need not re-ARP. Apple is already excluded; Haiku has no
     # such flag and the send works without it.
