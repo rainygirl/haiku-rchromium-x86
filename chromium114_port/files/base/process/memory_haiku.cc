@@ -40,4 +40,12 @@ bool UncheckedMalloc(size_t size, void** result) {
   return *result != nullptr;
 }
 
+// 114 pairs the unchecked allocators with an unchecked free, so that a
+// caller that got its memory here does not hand it to an allocator shim
+// that never saw it. There is no shim on Haiku and no second allocator:
+// this is free().
+void UncheckedFree(void* ptr) {
+  free(ptr);
+}
+
 }  // namespace base

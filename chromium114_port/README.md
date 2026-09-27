@@ -54,3 +54,56 @@ itself the worklist.
 - the Ozone/BeAPI backend, which moved once already from 87 to 108
 - `K0002` (Haiku's libnetwork closing fd 0) is a system bug, not a Chromium
   one, and applies here too
+
+## It builds, it links, it runs (2026-09-27)
+
+	content_shell   275 MB, ELF32 i386
+	ninja exit=0, failed edges 0
+
+And on renku, first try:
+
+	[RCH] OzonePlatformHaiku::InitializeUI
+	[RCH] CreatePlatformWindow called
+	[RCH] HaikuWindow ctor bounds=800x600
+	[RCH] HaikuWindow::Show inactive=0
+	DevTools listening on ws://127.0.0.1:47956/...
+
+	title    = top-level await works
+	body     = top-level await works | toSorted: 1,2,3
+	UA       = Mozilla/5.0 (Haiku; Haiku BePC) ... Chrome/114.0.5735.199
+	toSorted = present
+
+The four things that each took days on 108 -- the loader refusing the
+image over DF_STATIC_TLS, the renderer dying on a snapshot built by a
+64-bit mksnapshot, the window never being shown, and Haiku's libnetwork
+closing standard input -- all passed on the first run here, because
+their answers came along in the port scripts. That is what the 108 work
+bought.
+
+`Array.prototype.toSorted` is present without a flag, which is what 110
+shipped and what 108 could not do.
+
+## x.com gets further and still does not render
+
+![x.com stopped at the loading spinner](x-com-loading.png)
+
+	ready     = complete
+	URL       = https://x.com/i/jf/onboarding/web?...&mode=login
+	title     = X - The Everything App / X
+	nodes     = 74
+	exceptions = 0
+	resources = 250, none with a 4xx or 5xx
+
+250 resources arrive -- entry-client, rolldown-runtime, i18n,
+sentry-filter, authorize, react -- and nothing throws. The body is
+
+	SCRIPT[0]  DIV[0, sr-only]  DIV[4 children]
+
+and that last div is `id="loading-x-anim-0"`, the X logo spinner. So the
+app boots, renders its loading state, and stops there. 108 never got
+past the server-sent shell; this is further in and a different failure.
+
+The window stays white, so the spinner in the DOM is not reaching the
+screen either. Whether the app is waiting on something or the compositor
+is not presenting is the next thing to find out, and those are different
+problems.

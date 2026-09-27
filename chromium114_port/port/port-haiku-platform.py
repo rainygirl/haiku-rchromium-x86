@@ -623,19 +623,23 @@ edits = [
     ("content/common/user_agent.cc",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
      '  return "";\n'
-     "#elif BUILDFLAG(IS_LINUX)",
+     "#elif BUILDFLAG(IS_IOS)\n"
+     "  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET",
      '#elif BUILDFLAG(IS_FUCHSIA)\n'
      '  return "";\n'
      "#elif BUILDFLAG(IS_HAIKU)\n"
+     '  return "Haiku; ";\n'
+     "#elif BUILDFLAG(IS_IOS)\n"
+     "  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET"),
+    ("content/common/user_agent.cc",
+     '#elif BUILDFLAG(IS_FUCHSIA)\n'
+     '  return "Fuchsia";\n'
+     "#elif BUILDFLAG(IS_LINUX)",
+     '#elif BUILDFLAG(IS_FUCHSIA)\n'
+     '  return "Fuchsia";\n'
+     "#elif BUILDFLAG(IS_HAIKU)\n"
      '  return "Haiku; Haiku BePC";\n'
      "#elif BUILDFLAG(IS_LINUX)"),
-    ("content/common/user_agent.cc",
-     '#elif BUILDFLAG(IS_LINUX)\n'
-     '  return "X11; Linux x86_64";\n'
-     "#elif BUILDFLAG(IS_IOS)",
-     '#elif BUILDFLAG(IS_LINUX)\n'
-     '  return "X11; Linux x86_64";\n'
-     "#elif BUILDFLAG(IS_IOS)"),
 
     # Enterprise policy wants a machine name to report. There is nothing to
     # report to, and Android already answers with an empty string.

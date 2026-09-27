@@ -241,7 +241,7 @@ edits = [
     ("net/BUILD.gn",
      "  if (is_linux || is_chromeos || is_android) {\n"
      "    sources += [\n"
-     '      "base/address_tracker_linux.cc",',
+     '      "base/address_map_linux.cc",',
      "  if (is_haiku) {\n"
      "    sources += [\n"
      '      "base/platform_mime_util_linux.cc",\n'
@@ -258,7 +258,7 @@ edits = [
      "\n"
      "  if (is_linux || is_chromeos || is_android) {\n"
      "    sources += [\n"
-     '      "base/address_tracker_linux.cc",',
+     '      "base/address_map_linux.cc",',
      '      "base/platform_mime_util_linux.cc",\n      "cert/'),
 
     # angle::GetSystemInfo(). gpu_info_collector_fuchsia.cc calls it and
@@ -319,6 +319,22 @@ edits = [
      "  if (is_haiku) {\n"
      '    configs += [ "//build/config/haiku:bsd" ]\n'
      "  }\n"),
+
+    # The renderer's platform hooks. 114 lists them under is_linux ||
+    # is_chromeos and the Fuchsia file is three empty functions and an
+    # EnableSandbox that returns true, which is the honest answer here.
+    ("content/renderer/BUILD.gn",
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "renderer_main_platform_delegate_linux.cc",',
+     "  if (is_haiku) {\n"
+     '    sources += [ "renderer_main_platform_delegate_fuchsia.cc" ]\n'
+     "  }\n"
+     "\n"
+     "  if (is_linux || is_chromeos) {\n"
+     "    sources += [\n"
+     '      "renderer_main_platform_delegate_linux.cc",',
+     '"renderer_main_platform_delegate_fuchsia.cc" ]'),
 
     # skia's default font manager. Haiku builds the same bundled fontconfig
     # Linux does, so the same file answers.
