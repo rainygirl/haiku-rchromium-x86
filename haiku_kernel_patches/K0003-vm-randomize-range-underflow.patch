@@ -1,0 +1,101 @@
+Haiku kernel: an mmap() can panic the machine through _RandomizeAddress().
+
+    PANIC: ASSERT FAILED (src/system/kernel/vm/VMUserAddressSpace.cpp:465):
+           start <= end
+    Thread 24195 "NetworkService" running on CPU 0
+
+      VMUserAddressSpace::_RandomizeAddress(...)
+      VMUserAddressSpace::_InsertAreaSlot(0x100000, 524288, ...)
+      VMUserAddressSpace::InsertArea(...)
+      vm_map_cache(...)
+      vm_map_file(6, ..., 524288, ...)
+      _user_map_file
+      handle_syscall
+      <content_shell>
+
+Seen on hrev99002+148 (x86_gcc2, 2 GB machine) while Chromium 114 loaded
+x.com. The mapping is one of Chromium's shared memory regions -- 524288 bytes,
+mmap of a descriptor -- and the address specification is
+B_RANDOMIZED_ANY_ADDRESS, so searchBase is USER_BASE_ANY (0x100000) and
+searchEnd is fEndAddress.
+
+A userland mmap() should not be able to take the kernel down, whatever state
+the address space is in.
+
+## What happens
+
+_InsertAreaSlot() walks the areas looking for a hole. When it does not find
+one it falls through to the last resort: the reserved areas. There, for a
+reserved area big enough to hold the request at its end, it picks a randomised
+base inside the area (VMUserAddressSpace.cpp, around line 765):
+
+    addr_t startRange = next->Base() + next->Size();
+    startRange -= size + kMaxRandomize;
+    startRange = ROUNDDOWN(startRange, alignment);
+    startRange = std::max(startRange, alignedNextBase);
+
+    addr_t rangeEnd
+        = std::min(next->Base() + next->Size() - size, end);
+    alignedBase = _RandomizeAddress(startRange, rangeEnd, alignment);
+
+The second line is an unguarded subtraction on unsigned addresses. On 32-bit,
+kMaxRandomize is 0x800000 -- 8 MB -- so whenever
+
+    next->Base() + next->Size() < size + 8 MB
+
+it underflows and startRange becomes an address near 2^32. ROUNDDOWN keeps it
+there, std::max() keeps it there, and _RandomizeAddress() is then called with
+a start above its end.
+
+That condition is not exotic. USER_BASE_ANY is 0x100000, so any reserved area
+sitting in the low 8.5 MB of the address space satisfies it for a 512 KB
+request. What makes it rare is only that this branch is reached when the
+ordinary search has already failed -- an address space that is full or badly
+fragmented, which is what a 32-bit browser produces after a few hundred
+mappings.
+
+The other five _RandomizeAddress() call sites in this function are each
+guarded by is_valid_spot(), which establishes alignedBase + size - 1 <= limit
+and therefore start <= end. This one is not: it computes its own start.
+
+## On a release kernel
+
+ASSERT is compiled out below KDEBUG_LEVEL 2, so on a release kernel there is
+no panic and no diagnostic. _RandomizeAddress() instead computes
+
+    addr_t range = end - start + 1;
+
+which underflows in turn, giving a range of nearly 2^32, and returns
+start + (random % range) -- an arbitrary address, which is then used as the
+base of the new area. That is worse than the panic, not better.
+
+## The fix
+
+Do the subtraction only when it cannot underflow. When it would, the clamp
+that follows is the answer anyway: alignedNextBase is already known to satisfy
+alignedNextBase + size - 1 <= min(next->Base() + next->Size() - 1, end), from
+the is_valid_spot() test that guards this branch, so it is a valid start and
+it is <= rangeEnd.
+
+--- a/src/system/kernel/vm/VMUserAddressSpace.cpp
++++ b/src/system/kernel/vm/VMUserAddressSpace.cpp
+@@ -762,8 +762,17 @@
+ 							addr_t alignedNextBase = align_address(next->Base(),
+ 								alignment);
+ 
+ 							addr_t startRange = next->Base() + next->Size();
+-							startRange -= size + kMaxRandomize;
++							// Unsigned, and kMaxRandomize is 8 MB on 32-bit:
++							// a reserved area low in the address space makes
++							// this underflow, and _RandomizeAddress() is then
++							// called with a start above its end. The clamp
++							// below is the right answer in that case --
++							// alignedNextBase is a valid start, by the
++							// is_valid_spot() test that guards this branch.
++							if (startRange < size + kMaxRandomize)
++								startRange = alignedNextBase;
++							else
++								startRange -= size + kMaxRandomize;
+ 							startRange = ROUNDDOWN(startRange, alignment);
+ 							startRange = std::max(startRange, alignedNextBase);
+ 
