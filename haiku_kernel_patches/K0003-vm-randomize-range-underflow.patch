@@ -2,32 +2,51 @@ Haiku kernel: an mmap() can panic the machine through _RandomizeAddress().
 
     PANIC: ASSERT FAILED (src/system/kernel/vm/VMUserAddressSpace.cpp:465):
            start <= end
-    Thread 24195 "NetworkService" running on CPU 0
+    Thread 610 "NetworkService" running on CPU 1
 
+      panic
       VMUserAddressSpace::_RandomizeAddress(...)
-      VMUserAddressSpace::_InsertAreaSlot(0x100000, 524288, ...)
+      VMUserAddressSpace::_InsertAreaSlot(0x100000, 0x80000 (524288),
+          0x7fffffff, 0x6 (6), 0x1000 (4096), VMUserArea*, 0x3)
       VMUserAddressSpace::InsertArea(...)
-      vm_map_cache(...)
-      vm_map_file(6, ..., 524288, ...)
+      vm_map_cache(..., "content_shell mmap area", 0x80000 (524288), ...)
+      _vm_map_file(6, ...)
       _user_map_file
       handle_syscall
-      <content_shell>
 
-Seen on hrev99002+148 (x86_gcc2, 2 GB machine) while Chromium 114 loaded
-x.com. The mapping is one of Chromium's shared memory regions -- 524288 bytes,
-mmap of a descriptor -- and the address specification is
-B_RANDOMIZED_ANY_ADDRESS, so searchBase is USER_BASE_ANY (0x100000) and
-searchEnd is fEndAddress.
+Seen twice on hrev99002+148 (x86_gcc2, 2 GB machine) while Chromium 114
+loaded x.com. A userland mmap() should not be able to take the kernel down,
+whatever state the address space is in.
 
-A userland mmap() should not be able to take the kernel down, whatever state
-the address space is in.
+## Reading the arguments
+
+_InsertAreaSlot()'s frame is the one to trust -- the _RandomizeAddress() frame
+above it has a `this` that does not match its callers', so KDL did not recover
+its arguments -- and it is self-consistent:
+
+    start       0x100000     USER_BASE_ANY
+    size        0x80000      512 KB
+    end         0x7fffffff   fEndAddress
+    addressSpec 6            B_RANDOMIZED_ANY_ADDRESS
+    alignment   0x1000
+
+addressSpec 6 pins down the call: mmap() in libroot chooses
+B_RANDOMIZED_ANY_ADDRESS only for a NULL hint address, and InsertArea() then
+takes searchBase from USER_BASE_ANY and searchEnd from fEndAddress, which is
+what the frame shows. So this is a plain anonymous-hint mmap of 512 KB -- one
+of Chromium's shared memory regions -- in a 32-bit address space.
+
+That rules out four of the six _RandomizeAddress() call sites by inspection:
+the one before the search loop needs B_RANDOMIZED_BASE_ADDRESS, and the three
+inside the loop are each guarded by is_valid_spot(), which establishes
+alignedBase + size - 1 <= limit and therefore start <= end. What is left is
+the last resort.
 
 ## What happens
 
-_InsertAreaSlot() walks the areas looking for a hole. When it does not find
-one it falls through to the last resort: the reserved areas. There, for a
-reserved area big enough to hold the request at its end, it picks a randomised
-base inside the area (VMUserAddressSpace.cpp, around line 765):
+When the ordinary search finds no hole, _InsertAreaSlot() falls through to the
+reserved areas. For a reserved area that can hold the request at its end, it
+picks a randomised base inside the area (around line 765):
 
     addr_t startRange = next->Base() + next->Size();
     startRange -= size + kMaxRandomize;
@@ -38,25 +57,23 @@ base inside the area (VMUserAddressSpace.cpp, around line 765):
         = std::min(next->Base() + next->Size() - size, end);
     alignedBase = _RandomizeAddress(startRange, rangeEnd, alignment);
 
-The second line is an unguarded subtraction on unsigned addresses. On 32-bit,
-kMaxRandomize is 0x800000 -- 8 MB -- so whenever
+The second line is an unguarded subtraction on unsigned addresses, and it is
+the only one of the six that computes its own start rather than taking one
+is_valid_spot() has already checked. On 32-bit kMaxRandomize is 0x800000 --
+8 MB -- so whenever
 
     next->Base() + next->Size() < size + 8 MB
 
-it underflows and startRange becomes an address near 2^32. ROUNDDOWN keeps it
-there, std::max() keeps it there, and _RandomizeAddress() is then called with
-a start above its end.
+it underflows and startRange lands near 2^32. ROUNDDOWN keeps it there,
+std::max() keeps it there, and _RandomizeAddress() is called with a start far
+above its end.
 
-That condition is not exotic. USER_BASE_ANY is 0x100000, so any reserved area
-sitting in the low 8.5 MB of the address space satisfies it for a 512 KB
-request. What makes it rare is only that this branch is reached when the
-ordinary search has already failed -- an address space that is full or badly
-fragmented, which is what a 32-bit browser produces after a few hundred
-mappings.
-
-The other five _RandomizeAddress() call sites in this function are each
-guarded by is_valid_spot(), which establishes alignedBase + size - 1 <= limit
-and therefore start <= end. This one is not: it computes its own start.
+For a 512 KB request that condition is "the reserved area ends below 8.5 MB",
+which is an ordinary place for one to be. What makes it rare is only that this
+branch is reached after the ordinary search has already failed -- an address
+space that is full or badly fragmented, which is what a 32-bit browser
+produces after a few hundred mappings. Both panics here came after minutes of
+page loading, and both were 512 KB mappings.
 
 ## On a release kernel
 
@@ -71,11 +88,23 @@ base of the new area. That is worse than the panic, not better.
 
 ## The fix
 
-Do the subtraction only when it cannot underflow. When it would, the clamp
-that follows is the answer anyway: alignedNextBase is already known to satisfy
-alignedNextBase + size - 1 <= min(next->Base() + next->Size() - 1, end), from
-the is_valid_spot() test that guards this branch, so it is a valid start and
-it is <= rangeEnd.
+Do the subtraction only when it cannot underflow. When it would, the clamp on
+the next line is the right answer anyway: alignedNextBase is already known to
+satisfy alignedNextBase + size - 1 <= min(next->Base() + next->Size() - 1,
+end) from the is_valid_spot() test that guards this branch, so it is a valid
+start and it is <= rangeEnd.
+
+## Also worth a look, not patched here
+
+The sanity check at the top of _InsertAreaSlot(),
+
+    if (start < fBase || size == 0 || end > fEndAddress
+        || start + (size - 1) > end)
+
+overflows for a start near the top of the address space, and it runs before
+start is aligned up. Neither could have produced this panic -- the arguments
+above are small and page-aligned -- so they are left alone rather than fixed
+on speculation.
 
 --- a/src/system/kernel/vm/VMUserAddressSpace.cpp
 +++ b/src/system/kernel/vm/VMUserAddressSpace.cpp
