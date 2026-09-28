@@ -41,6 +41,8 @@ line this port stops at while it is still a gcc build.
 | `port/port-compile-fixes.py` | 8 edits |
 | `port/port-os-detection.py` | 6 edits |
 | `port/port-fd0-workaround.py` | the close(0) workaround, written after 114 |
+| `port/port-datapipe-size.py` | 2 MB data pipes are too big for a 32-bit process |
+| `port/port-hid-haiku.py` | a HidService, because there being none is fatal |
 | `files/` | 39 whole files this port adds |
 
 `port-fd0-workaround.py` is new and is not a carry-over: the block it installs
@@ -229,3 +231,55 @@ This is what the port was for. The app that Chromium 87 answers with
 	SyntaxError: Unexpected reserved word
 
 runs on Haiku x86.
+
+## Four days' worth of walls in one afternoon (2026-09-28)
+
+R Twitter on the 114 build failed four different ways on the same page. They
+looked alike from the outside -- a white window, or a window that vanished --
+and none of them was the same bug.
+
+**The white window: 2 MB data pipes.** `network::URLLoader` creates one mojo
+data pipe per response, sized by
+`GetDataPipeDefaultAllocationSize(kLargerSizeIfPossible)`, which is 2 MB on
+any machine reporting more than 512 MB of RAM. A data pipe is a shared memory
+region: a descriptor pair and a Haiku area in a 32-bit address space that
+already holds a 275 MB binary. x.com's Vite build fetches on the order of a
+hundred ES modules at once, so the burst asks for 200 MB, and on a 2 GB machine
+the allocations start failing. `CreateDataPipe()` failing is reported as
+`ERR_INSUFFICIENT_RESOURCES` and nothing else -- the request had already
+succeeded, so a net log has no failed request in it, and upstream logs nothing
+at the failure. Haiku joins ChromeOS on the 512 KB default, and the failure now
+says so in the log.
+
+**The machine going down: a kernel bug the smaller pipes found.** See
+`haiku_kernel_patches/K0003`. An ordinary `mmap()` panicked the kernel through
+an unsigned underflow in `VMUserAddressSpace::_InsertAreaSlot()`. Worth saying
+plainly: the 512 KB change is what exposed it. At 2 MB the allocation failed
+earlier and more cleanly; at 512 KB more mappings succeed, the address space
+fragments, and the reserved-area fallback that holds the bug gets reached.
+
+**`udp_socket_posix.cc` FATAL: a stale library, not a bug.** K0002's fd-0
+problem was fixed in Haiku on 2026-09-03 -- and the test machine's
+`lib/x86/libnetwork.so` was built on 2026-08-15. The primary-architecture
+`lib/libnetwork.so` had the fix; only the secondary did not, and the secondary
+is the one a gcc13 Chromium loads. Rebuilding `haiku_x86` was the whole fix.
+**K0002's patch is obsolete**: upstream put `kq`/`resfd` and the closes that
+use them inside `#ifndef __HAIKU__`, so the members no longer exist to
+initialise.
+
+**The crash on sign-in: no HidService.** `HidService::Create()` returns
+nullptr on a platform it does not know, and `HidManagerImpl`'s constructor
+follows a `DCHECK` -- compiled out of a release build -- with
+`AddObserver()` on that null pointer. x.com asks for the HID device list
+because a passkey is a HID device. The fault address moved between runs
+(0x30, then 0x2208000), which is what an offset into a null `this` looks
+like. Fuchsia answers this with a stub that finds nothing; so does Haiku now.
+
+The trace came from Haiku's own `debug_server`, not from Chromium: there is no
+`backtrace()` here, so Chromium's handler prints `[end of stack trace]` and
+nothing else. `--disable-in-process-stack-traces` hands the signal to
+`debug_server`, which with `default_action report` writes a full report to the
+Desktop.
+
+With all four fixed, entering a handle and pressing Continue reaches the
+password or passkey step, and the machine stays up.
