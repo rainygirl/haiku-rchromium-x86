@@ -43,6 +43,7 @@ line this port stops at while it is still a gcc build.
 | `port/port-fd0-workaround.py` | the close(0) workaround, written after 114 |
 | `port/port-datapipe-size.py` | 2 MB data pipes are too big for a 32-bit process |
 | `port/port-hid-haiku.py` | a HidService, because there being none is fatal |
+| `port/port-shell-chrome.py` | the native toolbar's caller, and the install button |
 | `files/` | 39 whole files this port adds |
 
 `port-fd0-workaround.py` is new and is not a carry-over: the block it installs
@@ -283,3 +284,48 @@ Desktop.
 
 With all four fixed, entering a handle and pressing Continue reaches the
 password or passkey step, and the machine stays up.
+
+## The toolbar, and installing a web app (2026-09-28)
+
+Everything the native toolbar is made of was already here --
+`haiku_port/ozone/haiku_beapi_views.cc` has back, forward, reload, the address
+field, bookmarks, the install button and the icon scaling that gives an
+installed app the site's own icon. Nothing called any of it. The caller lived
+in the 87 overlay's `shell_platform_delegate_aura.cc`, and this port started
+from the stock one, so 114 came up as a window with no chrome at all.
+
+`files/content/shell/browser/shell_platform_delegate_aura.cc` is that caller,
+ported. What changed between 87 and 114:
+
+| 87 | 114 |
+| --- | --- |
+| `WebContents::GetManifest()` | gone; `ManifestManagerHost::GetOrCreateForPage()` |
+| `blink::Manifest` | `blink::mojom::Manifest`, with `blink::IsEmptyManifest()` |
+| `manifest.icons[i]` is a struct | still a struct -- typemapped, so `.src` and not `->src` |
+| `base::ThreadTaskRunnerHandle::Get()` | `base::SingleThreadTaskRunner::GetCurrentDefault()` |
+| `base::TimeDelta::FromSeconds(n)` | `base::Seconds(n)` |
+| delegate made the `display::Screen` | `ShellPlatformDataAura` makes it, through `ScopedScreenOzone` |
+| `RenderViewReady()` | `MainFrameCreated()` |
+
+The Screen is the one that cost a run: 87's `ShellPlatformDataAura` did not
+make one and the delegate had to, 114's does, and constructing a second bare
+`ScreenOzone` -- which never gets its `Initialize()` called -- SEGVs at 0x0
+before the first window appears.
+
+`ManifestManagerHost` is a layer violation and a deliberate one.
+`content/shell/DEPS` allows `+content/public` only, because the shell is meant
+to be the canonical embedder. 87 did not need the exception; the API it used
+was public and was removed. The port adds `+content/browser/manifest` with
+that reason written next to it.
+
+Measured on renku, x.com:
+
+    [RCH] AttachBrowserChrome widget=1 inset=30
+    [RCH] manifest page=https://x.com/ url=https://x.com/manifest.json
+          installable=1 name="X" display=3 icons=4
+    [RCH] installed "X" -> /boot/home/config/non-packaged/apps/X/X (deskbar: listed)
+    [RCH] icon 512x512 -> /boot/home/config/non-packaged/apps/X/X: set
+
+`RCH_INSTALL_AFTER=<seconds>` presses the button on a timer, which is how that
+was tested: the machine is a laptop reached over ssh and a feature that can
+only be tested by a person standing at it will not be tested.
