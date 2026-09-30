@@ -399,6 +399,8 @@ it was looked into as well (2026-09-30). It cannot be used here either:
   `media::VideoDecoder` for it. On Windows with Intel's own DXVA driver, a
   VAIO P still spent 40-50% of the core on playback.
 
+(Superseded the same day -- see "Hardware H.264 on the GMA500, in the browser" below: the firmware licence rules out shipping it, not using it, and an MIT-licensed command encoder was found.)
+
 So the CPU decodes. That path is already as fast as it goes: this build's
 ffmpeg has its x86 assembly in (`HAVE_X86ASM 1`, SSSE3, 297 objects in
 `ffmpeg_nasm`), and the lever that mattered was the codec, above.
@@ -408,4 +410,49 @@ sshd resets new connections, so sample on the machine and write to a file;
 a page can put its numbers in `document.title` for `hey ... get Title of
 Window 0` to read. And the Tailscale path to the VAIO is often relay-only
 and times out where the LAN address answers.
+
+## Hardware H.264 on the GMA500, in the browser (2026-09-30)
+
+The section above concluded the GMA500's decoder could not be used. That was
+wrong about what is possible and right only about what had been tried: the
+decoder block (an Imagination VXD370, "MSVDX") is powered and answers, Intel's
+firmware runs on it, and the command format it wants is in the first commit
+of psb_video's Android history -- the 2010 Moorestown code Wind River
+published under the MIT licence. `gma500-driver/tools/msvdx` has the
+userland driver and the evidence: every picture of Baseline CAVLC, Main
+CABAC and 848x480 Main CABAC test streams decodes bit-exact with ffmpeg, the
+480p one at 2.4 ms a frame.
+
+`files/media/gpu/haiku/` puts it under Chromium's own `H264Decoder` (parsing
+and DPB) as an accelerator, and `port/port-msvdx.py` wires it into the
+renderer. Packaged as `rchromium_x86-114.0.5735.199-4`. On the VAIO, same
+video as above:
+
+	before (software, -3)   240p then 144p, 60-70% of frames dropped,
+	                        stalled buffering at 72 s
+	after  (MSVDX, -4)      YouTube climbs from 144p to 360p by itself;
+	                        12 of 1879 frames dropped over the 360p stretch,
+	                        no stall, no crash; surfaces reallocated on the
+	                        resolution change (23 at 144p, 15 at 360p)
+
+A local 320x176 H.264 page shows the decoder engaged
+(`[RCH] msvdx: hardware H.264 decoding 320x176`), the two ffmpeg decode
+threads gone, and VizCompositorThread still the largest cost at 40-48% --
+at 360p and above the compositor, not the decoder, is now the limit.
+
+What it needs and does:
+
+- Intel's `msvdx_fw.bin` at `~/config/non-packaged/data/firmware/` (or
+  `RCH_MSVDX_FIRMWARE`). It is not in this repository or the package: its
+  licence is "INTEL CONFIDENTIAL, All rights reserved". Without it the
+  creator returns nothing and FFmpeg decodes, as before.
+- `/dev/misc/poke`, for the registers and physical addresses.
+- One video at a time; a second one falls back to FFmpeg.
+- `RCH_MSVDX=0` turns it off.
+- H.264 only (the chip has no VP9/AV1), progressive only, one slice group.
+- Output is copied into an I420 VideoFrame; the software compositor does the
+  colour conversion and scaling, as it did for FFmpeg's frames.
+
+The decoder types it reports is `kUnknown`; nothing in 114 needed a
+dedicated value.
 
