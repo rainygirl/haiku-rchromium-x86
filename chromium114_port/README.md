@@ -383,9 +383,13 @@ it was looked into as well (2026-09-30). It cannot be used here either:
   PCI config registers only -- no MMIO registers, no command format, no
   firmware interface. Nothing public from Imagination.
 - **Closed firmware.** It runs microcode, `msvdx_fw.bin` (15,564 bytes),
-  shipped only in Ubuntu's `psb-firmware` package, whose licence reads in
-  full "INTEL CONFIDENTIAL, All rights reserved." There is no grant to
-  redistribute it, so it cannot go in a Haiku package.
+  shipped in Ubuntu's `psb-firmware` package. That package's
+  `debian/copyright` says only "INTEL CONFIDENTIAL, All rights reserved", and
+  this section first read that as no right to redistribute. Its `COPYING` is
+  the actual licence, and it is a grant: the unmodified binary may be
+  redistributed with the notice and licence, used only with the Intel
+  hardware it is for, and not reverse engineered. (Corrected 2026-10-01; the
+  firmware now ships in the `msvdx_firmware` package.)
 - **No open userspace for this chip.** Intel's psb kernel driver
   (`psb_msvdx.c`, MIT-style header) loads the firmware and submits command
   buffers, but the layer that turns a bitstream into those commands was a
@@ -399,7 +403,7 @@ it was looked into as well (2026-09-30). It cannot be used here either:
   `media::VideoDecoder` for it. On Windows with Intel's own DXVA driver, a
   VAIO P still spent 40-50% of the core on playback.
 
-(Superseded the same day -- see "Hardware H.264 on the GMA500, in the browser" below: the firmware licence rules out shipping it, not using it, and an MIT-licensed command encoder was found.)
+(Superseded the same day -- see "Hardware H.264 on the GMA500, in the browser" below: an MIT-licensed command encoder was found, and the firmware licence turned out to allow shipping it too.)
 
 So the CPU decodes. That path is already as fast as it goes: this build's
 ffmpeg has its x86 assembly in (`HAVE_X86ASM 1`, SSSE3, 297 objects in
@@ -442,10 +446,11 @@ at 360p and above the compositor, not the decoder, is now the limit.
 
 What it needs and does:
 
-- Intel's `msvdx_fw.bin` at `~/config/non-packaged/data/firmware/` (or
-  `RCH_MSVDX_FIRMWARE`). It is not in this repository or the package: its
-  licence is "INTEL CONFIDENTIAL, All rights reserved". Without it the
-  creator returns nothing and FFmpeg decodes, as before.
+- Intel's `msvdx_fw.bin`, from the `msvdx_firmware` package
+  (`/boot/system/data/firmware/`), which `rchromium_x86` requires since -8.
+  A copy in `~/config/non-packaged/data/firmware/` or `RCH_MSVDX_FIRMWARE`
+  takes precedence. It is not in this repository. Without it the creator
+  returns nothing and FFmpeg decodes, as before.
 - `/dev/misc/poke`, for the registers and physical addresses.
 - One video at a time; a second one falls back to FFmpeg.
 - `RCH_MSVDX=0` turns it off.

@@ -109,8 +109,14 @@ sh install.sh /path/to/dir/with/content_shell
 - **무거운 페이지는 Atom에서 느립니다.** news.naver.com은 1.5-2.5초,
   news.google.co.kr은 JavaScript가 1.33 GHz 코어에서 CPU 병목이라 6-8초가
   걸립니다. 하드웨어 한계이며 버그가 아닙니다.
-- 하드웨어 가속이 없습니다. 모두 소프트웨어 렌더링입니다(Haiku에는 Chromium이
-  쓸 GL이 없음). 실행기가 `--disable-gpu`를 넘기는 이유입니다.
+- 페이지는 소프트웨어로 렌더링합니다(Haiku에는 Chromium이 쓸 GL이 없음).
+  실행기가 `--disable-gpu`를 넘기는 이유입니다.
+- **Sony VAIO P에서는 영상을 하드웨어로 디코딩합니다.** H.264를 GMA500 칩셋의
+  비디오 디코더가 처리해 YouTube가 360p로 재생됩니다. 패키지를 설치하면 그
+  디코더용 인텔 펌웨어인 `msvdx_firmware`가 함께 설치됩니다. 인텔 라이선스에
+  따라 수정 없이 재배포하며, 라이선스 전문(`COPYING`)은
+  `/boot/system/documentation/packages/msvdx_firmware`에 있습니다. 다른 기기와
+  VP9, AV1 영상은 소프트웨어로 디코딩합니다. `RCH_MSVDX=0`으로 끌 수 있습니다.
 - Chromium 87의 비공식 포트입니다. Chromium 일정에 맞춘 상류 보안 업데이트를
   받지 않으므로 민감한 계정에는 사용하지 마세요.
 

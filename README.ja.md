@@ -114,9 +114,15 @@ sh install.sh /path/to/dir/with/content_shell
 - **重いページは Atom では遅いです。** news.naver.com は 1.5-2.5 秒、
   news.google.co.kr は JavaScript が 1.33 GHz コアで CPU 律速となるため
   6-8 秒かかります。ハードウェアの限界であり、バグではありません。
-- ハードウェアアクセラレーションはありません。すべてソフトウェア描画です
-  (Haiku には Chromium が使える GL がありません)。ランチャーが `--disable-gpu`
-  を渡しているのはそのためです。
+- ページはソフトウェアで描画します(Haiku には Chromium が使える GL が
+  ありません)。ランチャーが `--disable-gpu` を渡しているのはそのためです。
+- **Sony VAIO P では動画をハードウェアでデコードします。** H.264 を GMA500
+  チップセットのビデオデコーダーが処理し、YouTube を 360p で再生できます。
+  パッケージをインストールすると、そのデコーダー用の Intel ファームウェア
+  `msvdx_firmware` も一緒に入ります。Intel のライセンスに従い無改変で再配布して
+  おり、ライセンス全文(`COPYING`)は
+  `/boot/system/documentation/packages/msvdx_firmware` にあります。ほかの機種や
+  VP9、AV1 の動画はソフトウェアでデコードします。`RCH_MSVDX=0` で無効にできます。
 - これは Chromium 87 の非公式移植です。Chromium のスケジュールに沿った上流の
   セキュリティ更新は受けません。重要なアカウントには使わないでください。
 

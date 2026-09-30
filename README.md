@@ -110,8 +110,15 @@ From a shell:
 - **Heavy pages are slow on the Atom.** news.naver.com loads in 1.5-2.5 s;
   news.google.co.kr takes 6-8 s because its JavaScript is CPU-bound on the
   1.33 GHz core. That is the hardware, not a bug.
-- No hardware acceleration: everything is software-rendered (Haiku has no GL
-  for Chromium to use), which is why the launcher passes `--disable-gpu`.
+- Pages are software-rendered (Haiku has no GL for Chromium to use), which is
+  why the launcher passes `--disable-gpu`.
+- **Video on the Sony VAIO P** is decoded in hardware: H.264 runs on the
+  GMA500 chipset's video decoder, which lets YouTube play at 360p. The package
+  pulls in `msvdx_firmware`, Intel's firmware for that decoder, redistributed
+  unmodified under Intel's licence (its `COPYING` is in
+  `/boot/system/documentation/packages/msvdx_firmware`). On other machines,
+  and for VP9 or AV1, video is decoded in software. `RCH_MSVDX=0` turns the
+  hardware path off.
 - This is an unofficial port of Chromium 87. It does not receive upstream
   security updates on Chromium's schedule; do not use it for sensitive
   accounts.
