@@ -91,3 +91,50 @@ if "haiku/event-config.h" not in t:
     assert old in t, "libevent event-config.h dispatcher is not as expected"
     open(disp, "w").write(t.replace(old, new, 1))
     print("  patched third_party/libevent/event-config.h")
+
+# poll() on Haiku reports POLLNVAL whether or not it was asked for, and
+# libevent's poll backend keeps slots nothing watches any more. A slot whose
+# descriptor has been closed then comes back POLLNVAL on every call, poll()
+# never blocks again, and NetworkService spins in the kernel for the life of
+# the process. Measured on 114 (2026-09-30): 48% of the VAIO with YouTube idle,
+# 13 dead slots, thousands of calls a second. The same fix as the 87 port's
+# patch 0091; see its header for the whole story.
+poll_c = os.path.join(lib, "poll.c")
+p = open(poll_c).read()
+if "Drop slots nothing is watching" not in p:
+    old = ("\tnfds = pop->nfds;\n"
+           "\tres = poll(pop->event_set, nfds, msec);\n")
+    new = ("#if defined(__HAIKU__)\n"
+           "\t/* Drop slots nothing is watching any more. Haiku's poll() ORs\n"
+           "\t * POLLERR|POLLHUP|POLLNVAL into events, so a slot is live only\n"
+           "\t * if it asks for POLLIN or POLLOUT. poll_add() builds a fresh\n"
+           "\t * slot if the descriptor comes back. */\n"
+           "\tfor (i = pop->nfds - 1; i >= 0; --i) {\n"
+           "\t\tstruct pollfd *dead = &pop->event_set[i];\n"
+           "\t\tif (dead->events & (POLLIN|POLLOUT))\n"
+           "\t\t\tcontinue;\n"
+           "\t\tpop->idxplus1_by_fd[dead->fd] = 0;\n"
+           "\t\t--pop->nfds;\n"
+           "\t\tif (i != pop->nfds) {\n"
+           "\t\t\tmemcpy(&pop->event_set[i], &pop->event_set[pop->nfds],\n"
+           "\t\t\t       sizeof(struct pollfd));\n"
+           "\t\t\tpop->event_r_back[i] = pop->event_r_back[pop->nfds];\n"
+           "\t\t\tpop->event_w_back[i] = pop->event_w_back[pop->nfds];\n"
+           "\t\t\tpop->idxplus1_by_fd[pop->event_set[i].fd] = i + 1;\n"
+           "\t\t}\n"
+           "\t}\n"
+           "#endif\n\n" + old)
+    assert p.count(old) == 1, "libevent poll.c dispatch is not as expected"
+    p = p.replace(old, new, 1)
+    old2 = ("\t\tif (what & (POLLHUP|POLLERR))\n"
+            "\t\t\twhat |= POLLIN|POLLOUT;\n")
+    new2 = ("#if defined(__HAIKU__)\n"
+            "\t\t/* A watched descriptor that is already gone reaches its\n"
+            "\t\t * owner too, which then closes and unregisters it. */\n"
+            "\t\tif (what & (POLLHUP|POLLERR|POLLNVAL))\n"
+            "\t\t\twhat |= POLLIN|POLLOUT;\n"
+            "#else\n" + old2 + "#endif\n")
+    assert p.count(old2) == 1, "libevent poll.c revents handling is not as expected"
+    p = p.replace(old2, new2, 1)
+    open(poll_c, "w").write(p)
+    print("  patched third_party/libevent/poll.c (dead descriptors)")

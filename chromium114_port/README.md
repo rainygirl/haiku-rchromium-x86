@@ -456,3 +456,49 @@ What it needs and does:
 The decoder types it reports is `kUnknown`; nothing in 114 needed a
 dedicated value.
 
+
+### Three things that made it fail after the first hour (2026-09-30)
+
+- **No contiguous memory left.** Every decoder buffer was a `B_CONTIGUOUS`
+  area. Fifty-one minutes after boot, with 1.5 GB nominally free (almost all
+  of it file cache), the largest contiguous run `create_area()` would give
+  was 512 kB; RENDEC alone wants 2 MB and a 720p surface 1.4 MB. So the
+  hardware path quietly stopped engaging once the machine had been up a
+  while. The decoder only ever sees memory through its own MMU, so
+  `msvdx_alloc()` now takes an ordinary `B_FULL_LOCK` area and maps it page
+  by page. The page directory and page tables are single pages and stay
+  contiguous.
+- **A fork panicked the kernel.** `fork()` copies every area that is not
+  `B_SHARED_AREA` copy-on-write, which write-protects the parent's pages.
+  For the register mapping that is fatal: the next register write faults
+  on a present, read-only device page and the kernel asserts in KDL,
+  `ASSERT FAILED X86VMTranslationMapPAE.cpp:423 (*entry & present) == 0`.
+  libVLC forks for every HTTP stream (posix_spawn of the libproxy helper),
+  so R Television took the VAIO down twice on its first HLS channel. It was
+  first blamed on unmapping and remapping the registers; mapping them once
+  per team did not help, and the second panic had the same trace. Userland
+  cannot set `B_SHARED_AREA`, but `vm_clone_area()` sets it on the source
+  and keeps it, so `share_area()` clones each area once and deletes the
+  clone. Verified by opening the decoder, forking, and writing registers.
+  This browser is single-process and never forked, which is why it never
+  hit it.
+- **Two applications could program the block at once.** Opening resets it,
+  so a second user would wipe the first one's decode mid-frame. A named
+  port, `msvdx owner`, is now the lock; the kernel deletes it with its team.
+
+## NetworkService spun on dead descriptors, again (2026-09-30)
+
+The 87 port's patch 0091 never came across. On 114, with YouTube's home page
+idle, NetworkService took 48% of the VAIO, 95% of it in the kernel: strace
+showed thousands of `poll()` calls a second, each returning immediately with
+thirteen descriptors `POLLNVAL`. `port/port-libevent.py` now carries the same
+fix -- drop poll slots nothing watches, and deliver POLLNVAL to a slot's
+owner like POLLHUP. Measured on YouTube, warm cache:
+
+	                         NetworkService   home page items   watch page title
+	before (-5)              35-48 %          58-63 s           ~125 s
+	after  (-6)              ~5 %             47 s              ~90 s
+
+What is left is YouTube's JavaScript on the renderer's main thread, one
+logical CPU at 35-45% of the machine for the whole load. The V8 code cache
+is on disk (16 MB) and in use, so this is execution, not compilation.

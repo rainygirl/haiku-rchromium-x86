@@ -87,6 +87,22 @@ struct msvdx_fw {
 static volatile uint8* sRegs;
 static area_id sRegsArea = -1;
 static int sPoke = -1;
+static int sHwUp;	/* between a successful mapping in msvdx_open() and msvdx_close() */
+
+/* One team at a time. Opening resets the whole block, so a second user --
+ * R Television while R Chromium plays a video, say -- would wipe the first
+ * one's decode mid-frame. A named port is the lock: the kernel deletes it
+ * when its team dies, so a crash cannot leave the hardware claimed. */
+#define OWNER_PORT_NAME "msvdx owner"
+static port_id sOwner = -1;
+
+static void
+release_owner(void)
+{
+	if (sOwner >= 0)
+		delete_port(sOwner);
+	sOwner = -1;
+}
 static uint8 sRevision;
 
 static area_id sPdArea = -1;
@@ -134,7 +150,36 @@ wait_for(uint32 off, uint32 value, uint32 mask)
 }
 
 
-/* Contiguous memory from the kernel, with the physical address it got. */
+/* Keep an area out of copy-on-write when the team forks.
+ *
+ * fork() copies every area that is not B_SHARED_AREA copy-on-write, which
+ * write-protects the parent's pages. For the register mapping that is fatal:
+ * the next register write faults on a present, read-only device page and the
+ * kernel asserts (PANIC in X86VMTranslationMapPAE::Map, "(*entry &
+ * X86_PAE_PTE_PRESENT) == 0", twice on 2026-09-30). libVLC forks for every
+ * HTTP stream -- posix_spawn of the libproxy helper -- so R Television hit it
+ * as soon as it played an HLS channel. For the buffers it would be quieter
+ * and as bad: a page the decoder's MMU points at could be swapped for a copy.
+ *
+ * Userland cannot set B_SHARED_AREA, but vm_clone_area() sets it on the
+ * source area and leaves it there, so cloning once and dropping the clone is
+ * enough. */
+static void
+share_area(area_id area)
+{
+	void* address;
+	area_id clone = clone_area("msvdx shared", &address, B_ANY_ADDRESS,
+		B_READ_AREA | B_WRITE_AREA, area);
+	if (clone < 0) {
+		fprintf(stderr, "msvdx: cannot share area %ld: %s\n", (long)area,
+			strerror(clone));
+		return;
+	}
+	delete_area(clone);
+}
+
+
+/* The physical page behind a locked virtual address. */
 static uint32
 physical_address(void* cpu)
 {
@@ -162,6 +207,7 @@ alloc_contiguous(uint32 size, void** cpu, uint32* phys)
 			(unsigned long)size, strerror(area));
 		return area;
 	}
+	share_area(area);
 	memset(*cpu, 0, size);	/* also faults the pages in */
 	*phys = physical_address(*cpu);
 	if (*phys == 0 || physical_address((uint8*)*cpu + size - 1)
@@ -223,27 +269,43 @@ mmu_init(void)
 }
 
 
+/* Point one decoder page at one physical page. */
 static int
-mmu_map(uint32 dev, uint32 phys, uint32 size)
+mmu_map_page(uint32 va, uint32 phys)
+{
+	uint32 pdi = va >> 22;
+	uint32 pti = (va >> 12) & 0x3ff;
+	if (sPtArea[pdi] < 0) {
+		void* cpu;
+		uint32 ptPhys;
+		uint32 i;
+		sPtArea[pdi] = alloc_contiguous(B_PAGE_SIZE, &cpu, &ptPhys);
+		if (sPtArea[pdi] < 0)
+			return 1;
+		sPt[pdi] = (uint32*)cpu;
+		for (i = 0; i < 1024; i++)
+			sPt[pdi][i] = sDummyPagePhys | PSB_PTE_VALID;
+		sPd[pdi] = ptPhys | PSB_PTE_VALID;
+	}
+	sPt[pdi][pti] = phys | PSB_PTE_VALID | PSB_PTE_CACHED;
+	return 0;
+}
+
+
+/* Map `size` bytes of a locked area at `cpu` to decoder addresses from
+ * `dev`, page by page. The decoder sees memory only through its own MMU, so
+ * the pages need not be physically contiguous -- which matters: an hour after
+ * boot Haiku's file cache has scattered free memory so thoroughly that no
+ * 1 MB contiguous run is left, with 1.5 GB nominally free (measured
+ * 2026-09-30), and a 720p surface is 1.4 MB. */
+static int
+mmu_map(uint32 dev, const uint8* cpu, uint32 size)
 {
 	uint32 off;
 	for (off = 0; off < size; off += B_PAGE_SIZE) {
-		uint32 va = dev + off;
-		uint32 pdi = va >> 22;
-		uint32 pti = (va >> 12) & 0x3ff;
-		if (sPtArea[pdi] < 0) {
-			void* cpu;
-			uint32 ptPhys;
-			uint32 i;
-			sPtArea[pdi] = alloc_contiguous(B_PAGE_SIZE, &cpu, &ptPhys);
-			if (sPtArea[pdi] < 0)
-				return 1;
-			sPt[pdi] = (uint32*)cpu;
-			for (i = 0; i < 1024; i++)
-				sPt[pdi][i] = sDummyPagePhys | PSB_PTE_VALID;
-			sPd[pdi] = ptPhys | PSB_PTE_VALID;
-		}
-		sPt[pdi][pti] = (phys + off) | PSB_PTE_VALID | PSB_PTE_CACHED;
+		uint32 phys = physical_address((void*)(cpu + off));
+		if (phys == 0 || mmu_map_page(dev + off, phys) != 0)
+			return 1;
 	}
 	/* The page tables are read by the decoder, not the CPU. */
 	for (off = 0; off < 1024; off++) {
@@ -267,14 +329,22 @@ msvdx_alloc(msvdx_buf* buf, uint32 size)
 {
 	void* cpu;
 	size = (size + B_PAGE_SIZE - 1) & ~(B_PAGE_SIZE - 1);
-	buf->area = alloc_contiguous(size, &cpu, &buf->phys);
-	if (buf->area < 0)
+	/* Locked, so every page stays where the decoder's MMU points. */
+	buf->area = create_area("msvdx", &cpu, B_ANY_ADDRESS, size, B_FULL_LOCK,
+		B_READ_AREA | B_WRITE_AREA);
+	if (buf->area < 0) {
+		fprintf(stderr, "msvdx: create_area(%lu, B_FULL_LOCK): %s\n",
+			(unsigned long)size, strerror(buf->area));
 		return 1;
+	}
+	share_area(buf->area);
+	memset(cpu, 0, size);
 	buf->cpu = (uint8*)cpu;
+	buf->phys = physical_address(cpu);
 	buf->size = size;
 	buf->dev = sNextDev;
 	sNextDev += size + B_PAGE_SIZE;	/* a guard page between buffers */
-	if (mmu_map(buf->dev, buf->phys, size) != 0)
+	if (mmu_map(buf->dev, buf->cpu, size) != 0)
 		return 1;
 	msvdx_flush(buf, 0, size);
 	return 0;
@@ -419,31 +489,45 @@ msvdx_open(const char* firmwarePath)
 	int index;
 	int i;
 
-	sPoke = open(POKE_DEVICE_FULLNAME, O_RDWR);
-	if (sPoke < 0)
+	if (find_port(OWNER_PORT_NAME) >= 0) {
+		fprintf(stderr, "msvdx: in use by another application\n");
 		return 1;
-	args.signature = POKE_SIGNATURE;
-	args.info = &info;
-	for (index = 0; index < 255; index++) {
-		args.index = index;
-		if (ioctl(sPoke, POKE_GET_NTH_PCI_INFO, &args, sizeof(args)) != B_OK
-			|| args.status != B_OK)
-			return 1;
-		if (info.vendor_id == 0x8086 && info.device_id == 0x8108)
-			break;
 	}
-	sRevision = info.revision;
-	memset(&mmio, 0, sizeof(mmio));
-	mmio.signature = POKE_SIGNATURE;
-	mmio.name = "msvdx regs";
-	mmio.physical_address = info.u.h0.base_registers[0];
-	mmio.size = info.u.h0.base_register_sizes[0];
-	mmio.flags = B_ANY_ADDRESS;
-	mmio.protection = B_READ_AREA | B_WRITE_AREA;
-	if (ioctl(sPoke, POKE_MAP_MEMORY, &mmio, sizeof(mmio)) < 0)
+	sOwner = create_port(1, OWNER_PORT_NAME);
+	if (sOwner < 0)
 		return 1;
-	sRegsArea = mmio.area;
-	sRegs = (volatile uint8*)mmio.address + PSB_MSVDX_OFFSET;
+
+	/* The registers are mapped once per team and kept until it exits;
+	 * there is nothing to gain from unmapping them between videos. */
+	if (sRegsArea < 0) {
+		sPoke = open(POKE_DEVICE_FULLNAME, O_RDWR);
+		if (sPoke < 0)
+			return 1;
+		args.signature = POKE_SIGNATURE;
+		args.info = &info;
+		for (index = 0; index < 255; index++) {
+			args.index = index;
+			if (ioctl(sPoke, POKE_GET_NTH_PCI_INFO, &args, sizeof(args))
+					!= B_OK || args.status != B_OK)
+				return 1;
+			if (info.vendor_id == 0x8086 && info.device_id == 0x8108)
+				break;
+		}
+		sRevision = info.revision;
+		memset(&mmio, 0, sizeof(mmio));
+		mmio.signature = POKE_SIGNATURE;
+		mmio.name = "msvdx regs";
+		mmio.physical_address = info.u.h0.base_registers[0];
+		mmio.size = info.u.h0.base_register_sizes[0];
+		mmio.flags = B_ANY_ADDRESS;
+		mmio.protection = B_READ_AREA | B_WRITE_AREA;
+		if (ioctl(sPoke, POKE_MAP_MEMORY, &mmio, sizeof(mmio)) < 0)
+			return 1;
+		sRegsArea = mmio.area;
+		share_area(sRegsArea);
+		sRegs = (volatile uint8*)mmio.address + PSB_MSVDX_OFFSET;
+	}
+	sHwUp = 1;
 
 	/* psb_msvdx_reset(): stop whatever an earlier run left going. */
 	wr(MTX_ENABLE, 0);
@@ -492,8 +576,11 @@ msvdx_close(void)
 {
 	int i;
 
-	if (sRegs == NULL)
+	if (!sHwUp) {
+		release_owner();
 		return;
+	}
+	sHwUp = 0;
 	wr(MTX_ENABLE, 0);
 	wr(MSVDX_CONTROL, SOFT_RESET_ALL);
 	wait_for(MSVDX_CONTROL, 0, 0x00000100);
@@ -518,13 +605,8 @@ msvdx_close(void)
 	sPd = NULL;
 	sNextDev = DEV_VA_BASE;
 	sPtdInvalidate = 1;
-	if (sRegsArea >= 0)
-		delete_area(sRegsArea);
-	sRegsArea = -1;
-	sRegs = NULL;
-	if (sPoke >= 0)
-		close(sPoke);
-	sPoke = -1;
+	/* The register mapping and the poke descriptor stay; see msvdx_open(). */
+	release_owner();
 }
 
 
