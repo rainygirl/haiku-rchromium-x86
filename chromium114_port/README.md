@@ -45,6 +45,7 @@ line this port stops at while it is still a gcc build.
 | `port/port-hid-haiku.py` | a HidService, because there being none is fatal |
 | `port/port-shell-chrome.py` | the native toolbar's caller, and the install button |
 | `port/port-video.py` | no AV1, VP9 opt-in, nearest-neighbour video frames |
+| `port/port-msvdx.py` | hardware H.264 on the GMA500 (with `files/media/gpu/haiku/`) |
 | `files/` | 39 whole files this port adds |
 
 `port-fd0-workaround.py` is new and is not a carry-over: the block it installs

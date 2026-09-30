@@ -1,0 +1,54 @@
+# Hardware H.264 decoding on the GMA500's MSVDX (Imagination VXD370).
+# See haiku_msvdx_video_decoder.h and msvdx/README.md.
+
+import("//build/config/haiku/haiku.gni")
+
+assert(is_haiku)
+
+# psb_video's H.264 code (Intel, 2010, MIT) and the userland hardware
+# layer. Plain C, written for gcc -std=gnu99 and warning-heavy under
+# Chromium's flags, so it gets its own quiet config.
+config("msvdx_c_config") {
+  include_dirs = [
+    "msvdx",
+    "msvdx/hwdefs",
+    "msvdx/psb",
+    "$haiku_sysroot/headers/private/drivers",
+  ]
+  cflags_c = [
+    "-std=gnu99",
+    "-w",
+  ]
+}
+
+source_set("msvdx_c") {
+  visibility = [ ":*" ]
+  sources = [
+    "msvdx/msvdx.c",
+    "msvdx/msvdx_decode.c",
+    "msvdx/psb/psb_H264.c",
+    "msvdx/psb/psb_cmdbuf.c",
+    "msvdx/psb/psb_cmdbuf_host.c",
+  ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [
+    "//build/config/compiler:no_chromium_code",
+    ":msvdx_c_config",
+  ]
+}
+
+source_set("haiku") {
+  sources = [
+    "haiku_msvdx_video_decoder.cc",
+    "haiku_msvdx_video_decoder.h",
+    "msvdx/msvdx_decode.h",
+    "msvdx/va_h264.h",
+  ]
+  deps = [
+    ":msvdx_c",
+    "//base",
+    "//media",
+    "//media/gpu:common",
+    "//ui/gfx/geometry",
+  ]
+}
