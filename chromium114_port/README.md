@@ -372,6 +372,36 @@ back buffer; its sprite plane is RGB-only and 1:1. Nothing there decodes,
 converts or scales a video frame. The details are in the VAIO P patch set's
 own notes, under "GMA500".
 
+The chip does have a hardware video decoder, which that list leaves out, so
+it was looked into as well (2026-09-30). It cannot be used here either:
+
+- **What it is.** An Imagination VXD370 ("MSVDX"). The SCH US15W datasheet
+  (319537, section 9.2, table 22) lists H.264 up to High L4.1, MPEG-2,
+  MPEG-4 SP/ASP, VC-1 and WMV9. No VP8, VP9 or AV1. Decode only.
+- **No documentation.** The datasheet describes the pipeline and documents
+  PCI config registers only -- no MMIO registers, no command format, no
+  firmware interface. Nothing public from Imagination.
+- **Closed firmware.** It runs microcode, `msvdx_fw.bin` (15,564 bytes),
+  shipped only in Ubuntu's `psb-firmware` package, whose licence reads in
+  full "INTEL CONFIDENTIAL, All rights reserved." There is no grant to
+  redistribute it, so it cannot go in a Haiku package.
+- **No open userspace for this chip.** Intel's psb kernel driver
+  (`psb_msvdx.c`, MIT-style header) loads the firmware and submits command
+  buffers, but the layer that turns a bitstream into those commands was a
+  closed `psb_drv_video.so` ("INTEL CONFIDENTIAL", no reverse engineering).
+  The later open `intel/psb_video` covers Moorestown, Medfield and
+  Merrifield; Poulsbo's device ID 0x8108 does not appear in it. Mainline
+  Linux dropped the decoder entirely: "no support for the parts without open
+  source userspace (video accelerators, 3D)" (lwn.net/Articles/429205).
+- **Little left to win.** Its output is NV12 and no display plane takes YUV,
+  so colour conversion and scaling stay on the CPU, plus a Chromium
+  `media::VideoDecoder` for it. On Windows with Intel's own DXVA driver, a
+  VAIO P still spent 40-50% of the core on playback.
+
+So the CPU decodes. That path is already as fast as it goes: this build's
+ffmpeg has its x86 assembly in (`HAVE_X86ASM 1`, SSSE3, 297 objects in
+`ffmpeg_nasm`), and the lever that mattered was the codec, above.
+
 Two measurement notes. While video plays the single core is saturated and
 sshd resets new connections, so sample on the machine and write to a file;
 a page can put its numbers in `document.title` for `hey ... get Title of
