@@ -44,6 +44,7 @@ line this port stops at while it is still a gcc build.
 | `port/port-datapipe-size.py` | 2 MB data pipes are too big for a 32-bit process |
 | `port/port-hid-haiku.py` | a HidService, because there being none is fatal |
 | `port/port-shell-chrome.py` | the native toolbar's caller, and the install button |
+| `port/port-video.py` | no AV1, VP9 opt-in, nearest-neighbour video frames |
 | `files/` | 39 whole files this port adds |
 
 `port-fd0-workaround.py` is new and is not a carry-over: the block it installs
@@ -329,3 +330,38 @@ Measured on renku, x.com:
 `RCH_INSTALL_AFTER=<seconds>` presses the button on a timer, which is how that
 was tested: the machine is a laptop reached over ssh and a feature that can
 only be tested by a person standing at it will not be tested.
+
+## YouTube decodes nothing, because it is offered AV1 (2026-09-30)
+
+On the installed package, `https://www.youtube.com/watch?v=aqz-KE-bpKQ`
+sits on its poster and play button. Sampled on the VAIO through DevTools:
+
+	t= 60 s   av01.0.04M.08 (397)   frames 0   state 3 (buffering)
+	t= 90 s   av01.0.00M.08 (395)   frames 0   state 3
+	t=150 s   av01.0.00M.08 (394)   frames 0   state 3
+
+No media error is logged -- the player simply never gets a frame. The site
+picks the best codec the browser claims, and 114 claims AV1. The same video
+page with a local H.264 file plays: 5 of 2446 frames dropped at 980x540,
+with VizCompositorThread at 46% of the core doing the bilinear upscale.
+
+`port/port-video.py` stops advertising AV1, makes VP9 opt-in (`RCH_VP9=1`)
+so sites send H.264, and draws video frames nearest-neighbour
+(`RCH_VIDEO_BILINEAR=1` for the old look). It is anchored against pristine
+114.0.5735.199 copies of both files and applies cleanly; **it has not been
+built yet**, because the cross-build environment (the colima VM with the
+`haikubuild` volume) no longer exists on the Mac.
+
+What the VAIO P's GMA500 driver cannot do, so nobody goes looking again: its
+3D engine (PowerVR SGX535) has no public documentation and so no GL; its 2D
+blit hooks are never called because app_server composes into a main-memory
+back buffer; its sprite plane is RGB-only and 1:1. Nothing there decodes,
+converts or scales a video frame. The details are in the VAIO P patch set's
+own notes, under "GMA500".
+
+Two measurement notes. While video plays the single core is saturated and
+sshd resets new connections, so sample on the machine and write to a file;
+a page can put its numbers in `document.title` for `hey ... get Title of
+Window 0` to read. And the Tailscale path to the VAIO is often relay-only
+and times out where the LAN address answers.
+
