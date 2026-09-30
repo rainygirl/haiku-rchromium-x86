@@ -345,12 +345,25 @@ picks the best codec the browser claims, and 114 claims AV1. The same video
 page with a local H.264 file plays: 5 of 2446 frames dropped at 980x540,
 with VizCompositorThread at 46% of the core doing the bilinear upscale.
 
-`port/port-video.py` stops advertising AV1, makes VP9 opt-in (`RCH_VP9=1`)
-so sites send H.264, and draws video frames nearest-neighbour
-(`RCH_VIDEO_BILINEAR=1` for the old look). It is anchored against pristine
-114.0.5735.199 copies of both files and applies cleanly; **it has not been
-built yet**, because the cross-build environment (the colima VM with the
-`haikubuild` volume) no longer exists on the Mac.
+`port/port-video.py` stops advertising AV1 and makes VP9 opt-in
+(`RCH_VP9=1`), so sites send H.264. Built on the Mac mini (`b114`, three
+edges), packaged as `rchromium_x86-114.0.5735.199-3` with `package create -0`
+and installed with `pkgman install`. The same video on the installed package:
+
+	t= 60 s   avc1.4d4015 426x240   44 s played    525 / 1235 dropped
+	t= 90 s   avc1.4d400c 256x144   70 s played    859 / 2089 dropped
+	t=120 s   stalled buffering at 72 s
+
+It plays, from the first minute, at about 60% of frames; before, nothing.
+A Haiku kernel build (`jam -q kernel_x86`) was taking a quarter of the core
+throughout, and the DevTools polling that took the numbers another quarter,
+so this is a floor rather than a figure. The stall at 72 s is not explained.
+
+Nearest-neighbour scaling of video frames was tried as well and dropped. On
+Chromium 87 it had taken drops from a third of all frames to none; on 114 a
+320x176 video at 980x540 dropped 28 of 2296 frames nearest against 29 of
+2484 bilinear, VizCompositorThread 43.6% against 45.1%. Whatever 114's
+compositor spends its time on, it is not the resample.
 
 What the VAIO P's GMA500 driver cannot do, so nobody goes looking again: its
 3D engine (PowerVR SGX535) has no public documentation and so no GL; its 2D
