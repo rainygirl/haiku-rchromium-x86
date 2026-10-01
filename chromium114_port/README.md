@@ -507,3 +507,44 @@ owner like POLLHUP. Measured on YouTube, warm cache:
 What is left is YouTube's JavaScript on the renderer's main thread, one
 logical CPU at 35-45% of the machine for the whole load. The V8 code cache
 is on disk (16 MB) and in use, so this is execution, not compilation.
+
+## Skia drew one pixel at a time, because GCC built it (2026-10-01)
+
+On YouTube's ABC News Australia live stream the GMA500 decoded fine and
+playback still stuttered: 30% of frames dropped, and YouTube stepped down to
+144p. Haiku's `profile` put a third of VizCompositorThread in libroot's
+`fminf` and `fmaxf`.
+
+`SkRasterPipeline_opts.h` opens with
+
+	#if !defined(__clang__)
+	    #define JUMPER_IS_SCALAR
+
+so under GCC every pipeline stage handles one pixel per call, `min`/`max` are
+calls into libm rather than `minps`/`maxps`, and the 8-bit "lowp" pipeline,
+which is what most blits use, is not compiled at all. The SIMD code needs
+clang: `ext_vector_type`, and scalar-to-vector conversions GCC vectors do not
+allow (277 errors when it was tried with `vector_size`).
+
+So `SkOpts.cpp` alone is compiled by clang. `port/setup-wrappers.sh` makes
+`g++-x86` a script that sends `-o obj/skia/skia_core_and_effects/SkOpts.o` to
+`port/clang-x86` (Debian's clang 14, `--target=i586-pc-haiku`, the same
+libstdc++ and Haiku headers, `-mstackrealign`) and everything else to g++. The
+command lines ninja hashes do not change, so nothing else rebuilds.
+
+With that, the bilinear resample of the video frame became the visible cost,
+and `port-video.py` now draws video frames nearest-neighbour
+(`RCH_VIDEO_BILINEAR=1` to undo). Measured on the live stream:
+
+| build | VizCompositorThread | dropped | YouTube picked |
+|---|---|---|---|
+| -8 | 28% | 30% (18% steady) | 144p@15 |
+| SIMD, bilinear | 21-31% | ~12% | 144p@15 |
+| SIMD, nearest (-9) | 5.4% | 20% at 240p | 240p@30 |
+
+What is left is the renderer's main thread at ~36%: YouTube's own script and
+the live chat.
+
+Do not `kill` a program Haiku's `profile` is sampling: on the VAIO that
+panicked the kernel (General Protection Exception in kernel mode, thread
+"profile", in `timer_interrupt`).

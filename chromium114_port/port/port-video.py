@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Video that plays on a 1.33 GHz Atom with no video hardware: no AV1, VP9 opt-in.
+"""Video that plays on a 1.33 GHz Atom: no AV1, VP9 opt-in, frames drawn nearest.
 
 youtube.com on the 114 package, measured on the VAIO P: it picks AV1
 (`av01.0.04M.08`, then `av01.0.00M.08` twice), and in 150 seconds decodes
@@ -22,13 +22,14 @@ H.264 (`avc1.4d4015`, 426x240) and plays -- 20 s of video in 140 s of
 wall time, 434 of 602 frames dropped, with a Haiku kernel build taking 40% of
 the same core the whole time. Before it: AV1, zero frames.
 
-Not here, on purpose: drawing video frames nearest-neighbour. On the old
-Chromium 87 build that took drops from a third of all frames to none, because
-the bilinear resample was most of VizCompositorThread's time. On 114 it
-changed nothing -- a 320x176 video shown at 980x540 dropped 28 of 2296
-frames nearest and 29 of 2484 bilinear, with VizCompositorThread at 43.6%
-and 45.1%. The compositor's time goes somewhere else in 114, and a blockier
-picture that buys nothing is not worth shipping.
+2. **Draw video frames nearest-neighbour.** An earlier note here said this
+   changed nothing on 114 (VizCompositorThread at 43.6% nearest against 45.1%
+   bilinear). That measurement was taken while Skia's raster pipeline was
+   scalar -- see port/clang-x86 -- and the scalar pipeline's cost hid the
+   filter's. With SkOpts.cpp built by clang, on the ABC News Australia live
+   stream, same binary: VizCompositorThread 31.5% bilinear, 5.4% nearest, and
+   YouTube stepped up from 144p@15 to 240p@30. RCH_VIDEO_BILINEAR=1 restores
+   bilinear.
 """
 import sys
 
@@ -82,6 +83,45 @@ else:
     s = s.replace(old, new, 1)
     open(path, "w").write(s)
     print("  supported_types.cc: AV1 끔, VP9는 RCH_VP9=1일 때만")
+    done += 1
+
+# 2. Video frames drawn nearest-neighbour by the software renderer.
+path = "%s/components/viz/service/display/software_renderer.cc" % root
+s = open(path).read()
+if "HaikuVideoNearest" in s:
+    print("  software_renderer.cc: 이미 적용")
+else:
+    old = '#include "build/build_config.h"\n'
+    assert s.count(old) == 1, ("PATTERN NOT FOUND", path, "include")
+    s = s.replace(old, old + "\n#if BUILDFLAG(IS_HAIKU)\n#include <stdlib.h>\n#endif\n", 1)
+    old = "void SoftwareRenderer::DrawTextureQuad(const TextureDrawQuad* quad) {\n"
+    assert s.count(old) == 1, ("PATTERN NOT FOUND", path, "DrawTextureQuad")
+    new = ("#if BUILDFLAG(IS_HAIKU)\n"
+           "// Video frames are resampled to the player's size here, on the CPU,\n"
+           "// once per frame: there is no GPU and no scaler in the display\n"
+           "// hardware. Bilinear is four taps and a blend per output pixel,\n"
+           "// nearest is one read. RCH_VIDEO_BILINEAR=1 restores bilinear.\n"
+           "static bool HaikuVideoNearest() {\n"
+           "  static const bool nearest = getenv(\"RCH_VIDEO_BILINEAR\") == nullptr;\n"
+           "  return nearest;\n"
+           "}\n"
+           "#endif\n"
+           "\n" + old)
+    s = s.replace(old, new, 1)
+    old = ("  SkSamplingOptions sampling(quad->nearest_neighbor ? SkFilterMode::kNearest\n"
+           "                                                    : SkFilterMode::kLinear);\n"
+           "  current_canvas_->drawImageRect(image, sk_uv_rect, quad_rect, sampling,\n")
+    assert s.count(old) == 1, ("PATTERN NOT FOUND", path, "texture sampling")
+    new = ("  bool nearest = quad->nearest_neighbor;\n"
+           "#if BUILDFLAG(IS_HAIKU)\n"
+           "  nearest = nearest || (quad->is_video_frame && HaikuVideoNearest());\n"
+           "#endif\n"
+           "  SkSamplingOptions sampling(nearest ? SkFilterMode::kNearest\n"
+           "                                     : SkFilterMode::kLinear);\n"
+           "  current_canvas_->drawImageRect(image, sk_uv_rect, quad_rect, sampling,\n")
+    s = s.replace(old, new, 1)
+    open(path, "w").write(s)
+    print("  software_renderer.cc: 동영상 프레임 nearest (RCH_VIDEO_BILINEAR=1로 끔)")
     done += 1
 
 print("port-video: %d edits" % done)

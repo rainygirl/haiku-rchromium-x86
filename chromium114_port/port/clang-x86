@@ -1,0 +1,22 @@
+#!/bin/bash
+# clang-x86: compile one translation unit for i586-pc-haiku with clang, against
+# the same libstdc++ and Haiku headers g++-x86 uses, taking a g++-x86 argument
+# list. g++-x86 sends SkOpts.cpp here (see setup-wrappers.sh): Skia builds its
+# raster pipeline with SIMD only under clang -- under GCC it is scalar, one
+# pixel per stage call, with min/max as calls into libroot's fminf/fmaxf, and
+# the 8-bit "lowp" pipeline is left out altogether.
+CT=/build/generated.x86only/cross-tools-x86
+INC=$CT/i586-pc-haiku/include
+CXXINC=$INC/c++/13.3.0
+args=()
+for a in "$@"; do
+	case "$a" in
+		-W*|-mfpmath=sse|-fno-lifetime-dse) ;;   # GCC's warning set and options
+		*) args+=("$a") ;;
+	esac
+done
+# -nostdlibinc keeps clang's own intrinsic headers and drops the host's.
+# -mstackrealign: GCC code may call in with a stack aligned to 4 bytes only.
+exec clang++ --target=i586-pc-haiku -nostdlibinc -Wno-everything -mstackrealign \
+	-isystem "$CXXINC" -isystem "$CXXINC/i586-pc-haiku" -isystem "$CXXINC/backward" \
+	-isystem "$INC" "${args[@]}"
