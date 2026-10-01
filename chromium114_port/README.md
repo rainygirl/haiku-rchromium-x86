@@ -548,3 +548,20 @@ the live chat.
 Do not `kill` a program Haiku's `profile` is sampling: on the VAIO that
 panicked the kernel (General Protection Exception in kernel mode, thread
 "profile", in `timer_interrupt`).
+
+### 30 frames a second, not 60 (2026-10-01)
+
+`HaikuCanvas::CreateVSyncProvider()` returned null, so viz ticked at 60 Hz and
+every tick was a BeginFrame the renderer answered with requestAnimationFrame
+callbacks, style and layout for whatever moves -- on YouTube, the player's
+controls and the live chat, on the one core the video needs. It returns a
+`gfx::FixedVSyncProvider` at 30 Hz now; `RCH_FPS=<n>` picks another rate.
+Same live stream, same binary, one run each:
+
+| rate | renderer main thread | YouTube settled on |
+|---|---|---|
+| 60 Hz | 21.6% | 144p-240p |
+| 30 Hz | 14.2% | 360p for two minutes, 18-22% dropped |
+
+(The 87 port measured "capping the frame rate does nothing" on a page load,
+which is work that does not repeat per frame; an animating page does.)

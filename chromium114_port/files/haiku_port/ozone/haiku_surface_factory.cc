@@ -9,6 +9,7 @@
 #include "ui/ozone/public/surface_ozone_canvas.h"
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace ui {
 namespace {
@@ -63,8 +64,20 @@ class HaikuCanvas : public SurfaceOzoneCanvas {
     }
   }
 
+  // The display's frame clock. Without a provider viz ticks at 60 Hz, and
+  // every tick is a BeginFrame the renderer answers with requestAnimationFrame
+  // callbacks, style and layout for whatever animates -- on YouTube that is
+  // the player's controls and the live chat, all on the one Atom core the
+  // video needs. 30 Hz by default; RCH_FPS=<n> picks another rate.
   std::unique_ptr<gfx::VSyncProvider> CreateVSyncProvider() override {
-    return nullptr;
+    int fps = 30;
+    if (const char* env = getenv("RCH_FPS")) {
+      const int value = atoi(env);
+      if (value >= 10 && value <= 120)
+        fps = value;
+    }
+    return std::make_unique<gfx::FixedVSyncProvider>(
+        base::TimeTicks(), base::Seconds(1) / fps);
   }
 
  private:
